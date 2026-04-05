@@ -680,8 +680,8 @@ function App() {
             <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-primary/20 mb-4">
               <GraduationCap className="text-white w-10 h-10" />
             </div>
-            <h1 className="text-3xl font-bold text-text-main dark:text-text-main-dark">StudyStream</h1>
-            <p className="text-text-muted dark:text-text-muted-dark text-sm">Your minimalist academic command center.</p>
+            <h1 className="text-3xl font-bold text-text-main dark:text-text-main-dark">Cognito</h1>
+            <p className="text-text-muted dark:text-text-muted-dark text-sm">Your minimalist cognitive command center.</p>
           </div>
 
           {authError && (
@@ -767,8 +767,8 @@ function App() {
               <GraduationCap className="text-white w-5 h-5 sm:w-6 h-6" />
             </div>
             <div className="flex flex-col">
-              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-text-main dark:text-text-main-dark leading-none">StudyStream</span>
-              <span className="hidden sm:block text-[10px] font-bold text-primary uppercase tracking-widest mt-1 opacity-80">Academic Command</span>
+              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-text-main dark:text-text-main-dark leading-none">Cognito</span>
+              <span className="hidden sm:block text-[10px] font-bold text-primary uppercase tracking-widest mt-1 opacity-80">Cognitive Command</span>
             </div>
           </motion.div>
         </div>
