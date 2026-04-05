@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "oalbogdady1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isTaskOwner(taskId) {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/tasks/$(taskId)).data.userId == request.auth.uid;
+    }
+
+    // Validation Helpers
+    function isValidString(val, maxLen) {
+      return val is string && val.size() > 0 && val.size() <= maxLen;
+    }
+
+    function isValidTask(data) {
+      let allowedFields = ['userId', 'title', 'type', 'status', 'progress', 'createdAt', 'description', 'dueDate', 'calendarEventId'];
+      return data.keys().hasOnly(allowedFields) &&
+             data.userId == request.auth.uid &&
+             isValidString(data.title, 100) &&
+             data.type in ['assignment', 'exam'] &&
+             data.status in ['pending', 'completed'] &&
+             data.progress is number && data.progress >= 0 && data.progress <= 100 &&
+             data.createdAt is timestamp &&
+             (!('dueDate' in data) || data.dueDate is timestamp) &&
+             (!('description' in data) || data.description is string && data.description.size() <= 1000) &&
+             (!('calendarEventId' in data) || data.calendarEventId is string);
+    }
+
+    function isValidSubTask(data) {
+      let allowedFields = ['taskId', 'title', 'completed', 'order'];
+      return data.keys().hasOnly(allowedFields) &&
+             isValidString(data.title, 200) &&
+             data.completed is bool &&
+             data.order is number;
+    }
+
+    function isValidNote(data) {
+      let allowedFields = ['taskId', 'content', 'type', 'question', 'answer', 'hint'];
+      return data.keys().hasOnly(allowedFields) && 
+             data.type in ['concept', 'flashcard'] &&
+             (data.type == 'concept' ? (
+               isValidString(data.content, 5000) && 
+               !('question' in data) && !('answer' in data) && !('hint' in data)
+             ) : (
+               isValidString(data.question, 1000) && 
+               isValidString(data.answer, 1000) && 
+               (!('hint' in data) || data.hint is string && data.hint.size() <= 500) &&
+               !('content' in data)
+             ));
+    }
+
+    function isValidUser(data) {
+      let allowedFields = ['uid', 'email', 'displayName', 'photoURL', 'calendarSyncEnabled'];
+      return data.keys().hasOnly(allowedFields) &&
+             data.uid == request.auth.uid &&
+             isValidString(data.email, 255) &&
+             (!('displayName' in data) || data.displayName is string) &&
+             (!('photoURL' in data) || data.photoURL is string) &&
+             (!('calendarSyncEnabled' in data) || data.calendarSyncEnabled is bool);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Tasks
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isAuthenticated() && isValidTask(request.resource.data);
+      
+      allow update: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid || isAdmin()) &&
+        isValidTask(request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt; // Immutable field
+        
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      // Sub-tasks
+      match /subtasks/{subtaskId} {
+        allow read: if isTaskOwner(taskId) || isAdmin();
+        allow create: if isTaskOwner(taskId) && isValidSubTask(request.resource.data);
+        allow update: if isTaskOwner(taskId) && isValidSubTask(request.resource.data);
+        allow delete: if isTaskOwner(taskId) || isAdmin();
+      }
+
+      // Notes
+      match /notes/{noteId} {
+        allow read: if isTaskOwner(taskId) || isAdmin();
+        allow create: if isTaskOwner(taskId) && isValidNote(request.resource.data);
+        allow update: if isTaskOwner(taskId) && isValidNote(request.resource.data);
+        allow delete: if isTaskOwner(taskId) || isAdmin();
+      }
+    }
+  }
+}

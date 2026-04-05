@@ -1,0 +1,5 @@
+{
+  "name": "StudyStream",
+  "description": "A minimalist, full-stack student dashboard for managing assignments, exams, and study notes with real-time sync.",
+  "requestFramePermissions": []
+}

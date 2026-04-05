@@ -1,0 +1,1664 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo, Component, ReactNode } from 'react';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  calendarProvider,
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  where,
+  orderBy,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  Timestamp,
+  User,
+  getDoc,
+  setDoc,
+  deleteField,
+  GoogleAuthProvider
+} from './firebase';
+import { 
+  Calendar,
+  Layout, 
+  BookOpen, 
+  GraduationCap, 
+  Plus, 
+  CheckCircle2, 
+  Circle, 
+  Search, 
+  Moon, 
+  Sun, 
+  LogOut, 
+  ChevronRight, 
+  ChevronLeft,
+  MoreVertical,
+  Trash2,
+  Edit3,
+  BrainCircuit,
+  Layers,
+  Menu,
+  X,
+  Clock,
+  Mail,
+  Lock,
+  User as UserIcon,
+  AlertCircle,
+  RotateCw,
+  HelpCircle,
+  Eye,
+  Lightbulb,
+  Loader2
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from './lib/utils';
+import { Task, SubTask, Note, TaskType, UserProfile } from './types';
+import { format } from 'date-fns';
+
+// --- Error Handling ---
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // We don't throw here to avoid crashing the UI, but we log it.
+  return errInfo;
+}
+
+// --- Components ---
+
+const Modal = ({ isOpen, onClose, title, children }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-dark/40 backdrop-blur-sm">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="bg-surface dark:bg-surface-muted-dark w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-border dark:border-border-dark"
+      >
+        <div className="px-6 py-5 border-b border-border dark:border-border-dark flex items-center justify-between bg-surface-muted/50 dark:bg-surface-muted-dark/50">
+          <h3 className="font-bold text-xl tracking-tight text-text-main dark:text-text-main-dark">{title}</h3>
+          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-surface-muted dark:hover:bg-surface-muted-dark">
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+        <div className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+          {children}
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+const Button = ({ 
+  children, 
+  className, 
+  variant = 'primary', 
+  size = 'md', 
+  isLoading = false,
+  ...props 
+}: any) => {
+  const variants: any = {
+    primary: 'bg-primary text-white hover:bg-primary-hover shadow-md shadow-primary/20',
+    secondary: 'bg-surface text-text-muted border border-border hover:bg-surface-muted dark:bg-surface-muted-dark dark:text-text-muted-dark dark:border-border-dark dark:hover:bg-surface-muted shadow-sm',
+    ghost: 'bg-transparent text-text-muted hover:bg-surface-muted dark:text-text-muted-dark dark:hover:bg-surface-muted-dark',
+    danger: 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 border border-red-100 dark:border-red-900/30',
+  };
+  const sizes: any = {
+    sm: 'px-3 py-1.5 text-xs h-8',
+    md: 'px-5 py-2.5 text-sm h-10',
+    lg: 'px-6 py-3.5 text-base h-12',
+    icon: 'p-2.5 w-10 h-10',
+  };
+  return (
+    <button 
+      className={cn(
+        'inline-flex items-center justify-center rounded-2xl font-semibold transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none select-none',
+        variants[variant],
+        sizes[size],
+        className
+      )}
+      disabled={isLoading}
+      {...props}
+    >
+      {isLoading ? (
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+          className="w-4 h-4 border-2 border-current border-t-transparent rounded-full mr-2"
+        />
+      ) : null}
+      {children}
+    </button>
+  );
+};
+
+const Card = ({ children, className }: any) => (
+  <div className={cn('bg-surface dark:bg-surface-dark border border-border dark:border-border-dark rounded-3xl shadow-sm overflow-hidden', className)}>
+    {children}
+  </div>
+);
+
+const Input = ({ label, icon: Icon, ...props }: any) => (
+  <div className="space-y-2">
+    {label && <label className="text-xs font-bold text-text-muted dark:text-text-muted-dark uppercase tracking-wider ml-1">{label}</label>}
+    <div className="relative group">
+      {Icon && <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted group-focus-within:text-primary transition-colors" />}
+      <input 
+        className={cn(
+          "w-full bg-surface-muted border border-border rounded-2xl py-3 text-sm focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all dark:bg-surface-muted-dark dark:border-border-dark dark:text-text-main-dark",
+          Icon ? "pl-11 pr-4" : "px-4"
+        )}
+        {...props}
+      />
+    </div>
+  </div>
+);
+
+// --- Error Boundary ---
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState;
+  public props: ErrorBoundaryProps;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark p-4">
+          <div className="max-w-md w-full bg-surface dark:bg-surface-muted-dark rounded-3xl shadow-xl p-8 text-center space-y-6 border border-border dark:border-border-dark">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto text-red-600 dark:text-red-400">
+              <AlertCircle className="w-10 h-10" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-text-main dark:text-text-main-dark">Something went wrong</h2>
+              <p className="text-text-muted dark:text-text-muted-dark text-sm">
+                We encountered an unexpected error. Please try refreshing the page.
+              </p>
+            </div>
+            {this.state.error && (
+              <div className="p-4 bg-surface-muted dark:bg-surface-muted-dark rounded-2xl text-left overflow-auto max-h-40 border border-border dark:border-border-dark">
+                <code className="text-[10px] text-text-muted dark:text-text-muted-dark font-mono">
+                  {this.state.error.toString()}
+                </code>
+              </div>
+            )}
+            <button 
+              className="w-full bg-primary text-white rounded-2xl py-3 font-semibold hover:bg-primary-hover transition-colors"
+              onClick={() => window.location.reload()}
+            >
+              Refresh Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// --- Main App ---
+
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [calendarToken, setCalendarToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isCalendarLoading, setIsCalendarLoading] = useState(false);
+
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') === 'dark';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
+
+  const [activeTab, setActiveTab] = useState<TaskType>('assignment');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [subtasks, setSubtasks] = useState<SubTask[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [mobileActiveView, setMobileActiveView] = useState<'tasks' | 'dashboard' | 'studio'>('dashboard');
+
+  // Task Modal State
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskModalMode, setTaskModalMode] = useState<'add' | 'edit'>('add');
+  const [taskModalTitle, setTaskModalTitle] = useState('');
+  const [taskModalDesc, setTaskModalDesc] = useState('');
+  const [taskModalDueDate, setTaskModalDueDate] = useState('');
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+
+  // Delete Confirmation State
+  const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+
+  const [isAddingConcept, setIsAddingConcept] = useState(false);
+  const [newConceptContent, setNewConceptContent] = useState('');
+  const [isAddingFlashcard, setIsAddingFlashcard] = useState(false);
+  const [newFlashcardQuestion, setNewFlashcardQuestion] = useState('');
+  const [newFlashcardAnswer, setNewFlashcardAnswer] = useState('');
+  const [newFlashcardHint, setNewFlashcardHint] = useState('');
+  const [flippedCards, setFlippedCards] = useState<Record<string, boolean>>({});
+  const [revealedHints, setRevealedHints] = useState<Record<string, boolean>>({});
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [taskIdToDelete, setTaskIdToDelete] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  // User Profile Listener
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile(docSnap.data() as UserProfile);
+      } else {
+        const newProfile: UserProfile = {
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || '',
+          photoURL: user.photoURL || '',
+          calendarSyncEnabled: false
+        };
+        setDoc(doc(db, 'users', user.uid), newProfile);
+      }
+    });
+    return unsub;
+  }, [user]);
+
+  // Tasks Listener
+  useEffect(() => {
+    if (!user) return;
+    
+    const q = query(
+      collection(db, 'tasks'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const taskList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          dueDate: data.dueDate ? (data.dueDate as Timestamp).toDate() : undefined,
+          createdAt: data.createdAt ? (data.createdAt as Timestamp).toDate() : new Date(),
+        };
+      }) as Task[];
+      setTasks(taskList);
+      if (taskList.length > 0 && !selectedTaskId) {
+        setSelectedTaskId(taskList[0].id);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tasks');
+    });
+    
+    return unsubscribe;
+  }, [user]);
+
+  // Subtasks & Notes Listener
+  useEffect(() => {
+    if (!selectedTaskId || !user) return;
+    
+    const subQ = query(
+      collection(db, 'tasks', selectedTaskId, 'subtasks'),
+      orderBy('order', 'asc')
+    );
+    const unsubSub = onSnapshot(subQ, (snapshot) => {
+      setSubtasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as SubTask[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `tasks/${selectedTaskId}/subtasks`);
+    });
+
+    const noteQ = query(collection(db, 'tasks', selectedTaskId, 'notes'));
+    const unsubNote = onSnapshot(noteQ, (snapshot) => {
+      setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Note[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `tasks/${selectedTaskId}/notes`);
+    });
+
+    return () => {
+      unsubSub();
+      unsubNote();
+    };
+  }, [selectedTaskId, user]);
+
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setIsAuthLoading(true);
+    try {
+      if (authMode === 'signup') {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        // We could update profile here if needed
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (error: any) {
+      setAuthError(error.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleGuestMode = async () => {
+    setAuthError(null);
+    try {
+      await signInAnonymously(auth);
+    } catch (error: any) {
+      setAuthError(error.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setSelectedTaskId(null);
+    setTasks([]);
+    setSubtasks([]);
+    setNotes([]);
+    setCalendarToken(null);
+  };
+
+  const handleCalendarConnect = async () => {
+    if (isCalendarLoading) return;
+    
+    // If already connected, we could offer to disconnect, but for now let's just refresh the token
+    setIsCalendarLoading(true);
+    try {
+      const result = await signInWithPopup(auth, calendarProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setCalendarToken(credential.accessToken);
+        if (user) {
+          await updateDoc(doc(db, 'users', user.uid), { calendarSyncEnabled: true });
+        }
+      }
+    } catch (error: any) {
+      // Gracefully handle cancellation errors
+      if (error.code === 'auth/cancelled-popup-request' || 
+          error.code === 'auth/popup-closed-by-user' ||
+          error.code === 'auth/request-cancelled') {
+        console.log('Calendar connection cancelled by user or browser');
+      } else {
+        handleFirestoreError(error, OperationType.UPDATE, 'calendar-auth');
+      }
+    } finally {
+      setIsCalendarLoading(false);
+    }
+  };
+
+  const syncTaskToCalendar = async (task: any, taskId: string) => {
+    if (!calendarToken || !task.dueDate) return;
+
+    const dueDate = task.dueDate instanceof Timestamp ? task.dueDate.toDate() : task.dueDate;
+
+    const event = {
+      summary: `${task.type === 'exam' ? 'Exam' : 'Assignment'}: ${task.title}`,
+      description: task.description,
+      start: {
+        dateTime: dueDate.toISOString(),
+      },
+      end: {
+        dateTime: new Date(dueDate.getTime() + 60 * 60 * 1000).toISOString(), // 1 hour duration
+      },
+    };
+
+    try {
+      const method = task.calendarEventId ? 'PATCH' : 'POST';
+      const url = task.calendarEventId 
+        ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${task.calendarEventId}`
+        : `https://www.googleapis.com/calendar/v3/calendars/primary/events`;
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${calendarToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (!task.calendarEventId) {
+          await updateDoc(doc(db, 'tasks', taskId), { calendarEventId: data.id });
+        }
+      } else {
+        if (response.status === 401) setCalendarToken(null);
+      }
+    } catch (error) {
+      console.error('Calendar sync error:', error);
+    }
+  };
+
+  const deleteCalendarEvent = async (eventId: string) => {
+    if (!calendarToken) return;
+    try {
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${calendarToken}`,
+        },
+      });
+    } catch (error) {
+      console.error('Calendar delete error:', error);
+    }
+  };
+
+  const openAddTask = () => {
+    setTaskModalMode('add');
+    setTaskModalTitle('');
+    setTaskModalDesc('');
+    setTaskModalDueDate('');
+    setIsTaskModalOpen(true);
+  };
+
+  const openEditTask = (task: Task) => {
+    setTaskModalMode('edit');
+    setTaskToEdit(task);
+    setTaskModalTitle(task.title);
+    setTaskModalDesc(task.description || '');
+    setTaskModalDueDate(task.dueDate ? format(task.dueDate, "yyyy-MM-dd'T'HH:mm") : '');
+    setIsTaskModalOpen(true);
+  };
+
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    const taskData: any = {
+      userId: user.uid,
+      title: taskModalTitle,
+      description: taskModalDesc,
+      type: activeTab,
+      status: taskToEdit?.status || 'pending',
+      progress: taskToEdit?.progress || 0,
+      createdAt: taskToEdit?.createdAt ? Timestamp.fromDate(taskToEdit.createdAt) : Timestamp.now(),
+    };
+
+    if (taskModalDueDate) {
+      taskData.dueDate = Timestamp.fromDate(new Date(taskModalDueDate));
+    }
+
+    try {
+      let taskId = '';
+      if (taskModalMode === 'edit' && taskToEdit) {
+        taskId = taskToEdit.id;
+        // If editing, we might need to explicitly remove dueDate if it was cleared
+        if (!taskModalDueDate) {
+          await updateDoc(doc(db, 'tasks', taskToEdit.id), {
+            ...taskData,
+            dueDate: deleteField()
+          });
+        } else {
+          await updateDoc(doc(db, 'tasks', taskToEdit.id), taskData);
+        }
+      } else {
+        const docRef = await addDoc(collection(db, 'tasks'), taskData);
+        taskId = docRef.id;
+      }
+      
+      if (userProfile?.calendarSyncEnabled && calendarToken && taskData.dueDate) {
+        syncTaskToCalendar({ ...taskData, calendarEventId: taskToEdit?.calendarEventId }, taskId);
+      }
+      
+      setIsTaskModalOpen(false);
+    } catch (error) {
+      handleFirestoreError(error, taskModalMode === 'edit' ? OperationType.UPDATE : OperationType.CREATE, 'tasks');
+    }
+  };
+
+  const deleteTask = async () => {
+    if (!taskIdToDelete) return;
+    try {
+      const taskToDelete = tasks.find(t => t.id === taskIdToDelete);
+      if (taskToDelete?.calendarEventId && calendarToken) {
+        deleteCalendarEvent(taskToDelete.calendarEventId);
+      }
+      await deleteDoc(doc(db, 'tasks', taskIdToDelete));
+      if (selectedTaskId === taskIdToDelete) setSelectedTaskId(null);
+      setIsDeleteModalOpen(false);
+      setTaskIdToDelete(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `tasks/${taskIdToDelete}`);
+    }
+  };
+
+  const toggleTaskStatus = async (task: Task) => {
+    if (!user) return;
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    const newProgress = newStatus === 'completed' ? 100 : 0;
+    
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), {
+        status: newStatus,
+        progress: newProgress
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
+    }
+  };
+
+  const confirmDelete = (taskId: string) => {
+    setTaskIdToDelete(taskId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const addTask = async () => {
+    // Deprecated in favor of openAddTask
+  };
+
+  const addSubtask = async () => {
+    if (!selectedTaskId || !user || !newSubtaskTitle.trim()) return;
+
+    try {
+      await addDoc(collection(db, 'tasks', selectedTaskId, 'subtasks'), {
+        taskId: selectedTaskId,
+        title: newSubtaskTitle.trim(),
+        completed: false,
+        order: subtasks.length,
+      });
+      setNewSubtaskTitle('');
+      setIsAddingSubtask(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `tasks/${selectedTaskId}/subtasks`);
+    }
+  };
+
+  const toggleSubtask = async (sub: SubTask) => {
+    if (!selectedTaskId || !user) return;
+    try {
+      await updateDoc(doc(db, 'tasks', selectedTaskId, 'subtasks', sub.id), {
+        completed: !sub.completed,
+      });
+      
+      // Update task progress
+      const updatedSubtasks = subtasks.map(s => s.id === sub.id ? { ...s, completed: !s.completed } : s);
+      const completedCount = updatedSubtasks.filter(s => s.completed).length;
+      const progress = Math.round((completedCount / updatedSubtasks.length) * 100);
+      
+      await updateDoc(doc(db, 'tasks', selectedTaskId), {
+        progress,
+        status: progress === 100 ? 'completed' : 'pending'
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${selectedTaskId}/subtasks/${sub.id}`);
+    }
+  };
+
+  const addFlashcard = () => addNote('flashcard');
+
+  const deleteSubtask = async (subtaskId: string) => {
+    if (!selectedTaskId || !user) return;
+    try {
+      await deleteDoc(doc(db, 'tasks', selectedTaskId, 'subtasks', subtaskId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `tasks/${selectedTaskId}/subtasks/${subtaskId}`);
+    }
+  };
+
+  const deleteNote = async (noteId: string) => {
+    if (!selectedTaskId || !user) return;
+    try {
+      await deleteDoc(doc(db, 'tasks', selectedTaskId, 'notes', noteId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `tasks/${selectedTaskId}/notes/${noteId}`);
+    }
+  };
+
+  const addNote = async (type: 'concept' | 'flashcard') => {
+    if (!selectedTaskId || !user) return;
+
+    try {
+      if (type === 'concept') {
+        if (!newConceptContent.trim()) return;
+        await addDoc(collection(db, 'tasks', selectedTaskId, 'notes'), {
+          taskId: selectedTaskId,
+          content: newConceptContent.trim(),
+          type,
+        });
+        setNewConceptContent('');
+        setIsAddingConcept(false);
+      } else {
+        if (!newFlashcardQuestion.trim() || !newFlashcardAnswer.trim()) return;
+        await addDoc(collection(db, 'tasks', selectedTaskId, 'notes'), {
+          taskId: selectedTaskId,
+          question: newFlashcardQuestion.trim(),
+          answer: newFlashcardAnswer.trim(),
+          hint: newFlashcardHint.trim(),
+          type,
+        });
+        setNewFlashcardQuestion('');
+        setNewFlashcardAnswer('');
+        setNewFlashcardHint('');
+        setIsAddingFlashcard(false);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `tasks/${selectedTaskId}/notes`);
+    }
+  };
+
+  const selectedTask = useMemo(() => tasks.find(t => t.id === selectedTaskId), [tasks, selectedTaskId]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-surface dark:bg-surface-dark overflow-hidden">
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+          className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
+        />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-surface dark:bg-surface-dark p-4 overflow-hidden">
+        <Card className="max-w-md w-full p-8 space-y-6 border-none shadow-2xl dark:bg-surface-muted-dark">
+          <div className="text-center space-y-2">
+            <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-primary/20 mb-4">
+              <GraduationCap className="text-white w-10 h-10" />
+            </div>
+            <h1 className="text-3xl font-bold text-text-main dark:text-text-main-dark">StudyStream</h1>
+            <p className="text-text-muted dark:text-text-muted-dark text-sm">Your minimalist academic command center.</p>
+          </div>
+
+          {authError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 text-red-600 dark:text-red-400 p-3 rounded-xl text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleEmailAuth} className="space-y-4">
+            {authMode === 'signup' && (
+              <Input 
+                label="Full Name" 
+                icon={UserIcon} 
+                placeholder="John Doe" 
+                value={displayName}
+                onChange={(e: any) => setDisplayName(e.target.value)}
+                required
+              />
+            )}
+            <Input 
+              label="Email Address" 
+              icon={Mail} 
+              type="email" 
+              placeholder="name@university.edu" 
+              value={email}
+              onChange={(e: any) => setEmail(e.target.value)}
+              required
+            />
+            <Input 
+              label="Password" 
+              icon={Lock} 
+              type="password" 
+              placeholder="••••••••" 
+              value={password}
+              onChange={(e: any) => setPassword(e.target.value)}
+              required
+            />
+            <Button type="submit" className="w-full py-3" isLoading={isAuthLoading}>
+              {authMode === 'login' ? 'Sign In' : 'Create Account'}
+            </Button>
+          </form>
+
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border dark:border-border-dark"></div></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-surface dark:bg-surface-dark px-2 text-text-muted dark:text-text-muted-dark">Or continue with</span></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Button onClick={handleGoogleLogin} variant="secondary" className="gap-2">
+              Google
+            </Button>
+            <Button onClick={handleGuestMode} variant="secondary">
+              Guest Mode
+            </Button>
+          </div>
+
+          <p className="text-center text-sm text-text-muted dark:text-text-muted-dark">
+            {authMode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
+            <button 
+              onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
+              className="text-primary font-bold hover:underline"
+            >
+              {authMode === 'login' ? 'Sign Up' : 'Log In'}
+            </button>
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 flex flex-col bg-surface dark:bg-surface-dark text-text-main dark:text-text-main-dark font-sans transition-colors duration-300 overflow-hidden">
+      
+      {/* Header */}
+      <header className="h-20 border-b border-border dark:border-border-dark flex items-center justify-between px-4 sm:px-6 glass z-30 shrink-0">
+        <div className="flex items-center gap-3">
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="flex items-center gap-2 sm:gap-3 cursor-default"
+          >
+            <div className="w-9 h-9 sm:w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 rotate-3">
+              <GraduationCap className="text-white w-5 h-5 sm:w-6 h-6" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-text-main dark:text-text-main-dark leading-none">StudyStream</span>
+              <span className="hidden sm:block text-[10px] font-bold text-primary uppercase tracking-widest mt-1 opacity-80">Academic Command</span>
+            </div>
+          </motion.div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setDarkMode(!darkMode)} className="rounded-full w-9 h-9 sm:w-10 sm:h-10">
+            {darkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-text-muted" />}
+          </Button>
+
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleCalendarConnect} 
+            disabled={isCalendarLoading}
+            className={cn(
+              "rounded-full transition-all w-9 h-9 sm:w-10 sm:h-10",
+              userProfile?.calendarSyncEnabled && calendarToken ? "text-green-500 bg-green-50 dark:bg-green-900/20" : "text-text-muted"
+            )}
+            title={userProfile?.calendarSyncEnabled && calendarToken ? "Calendar Synced" : "Connect Google Calendar"}
+          >
+            {isCalendarLoading ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
+              >
+                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              </motion.div>
+            ) : (
+              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+            )}
+          </Button>
+          
+          <div className="h-8 w-px bg-border dark:bg-border-dark mx-0.5 sm:mx-1" />
+          
+          <div className="flex items-center gap-2 sm:gap-3 pl-1 sm:pl-2">
+            <div className="hidden md:block text-right">
+              <p className="text-sm font-bold text-text-main dark:text-text-main-dark leading-none">{user.isAnonymous ? 'Guest User' : (user.displayName || user.email?.split('@')[0])}</p>
+              <p className="text-[10px] text-text-muted dark:text-text-muted-dark mt-1">{user.isAnonymous ? 'Local Session' : user.email}</p>
+            </div>
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary font-bold overflow-hidden border-2 border-surface dark:border-border-dark shadow-md">
+              {user.photoURL ? <img src={user.photoURL} alt="profile" referrerPolicy="no-referrer" className="w-full h-full object-cover" /> : (user.displayName?.[0] || user.email?.[0]?.toUpperCase() || 'G')}
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-text-muted hover:text-red-500 rounded-full w-9 h-9 sm:w-10 sm:h-10">
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 flex overflow-hidden relative">
+        
+        {/* Left Sidebar Toggle */}
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className={cn(
+            "hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 w-6 h-12 bg-surface dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-full shadow-lg items-center justify-center transition-all duration-300 hover:scale-110 hover:bg-surface-muted dark:hover:bg-surface-muted-dark group",
+            isSidebarOpen ? "left-80 -translate-x-1/2" : "left-4"
+          )}
+          title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+        >
+          {isSidebarOpen ? <ChevronLeft className="w-4 h-4 text-text-muted group-hover:text-primary" /> : <ChevronRight className="w-4 h-4 text-text-muted group-hover:text-primary" />}
+        </button>
+
+        {/* Left Sidebar - Task List */}
+        <aside className={cn(
+          "border-r border-border dark:border-border-dark flex flex-col bg-surface-muted dark:bg-surface-dark/50 backdrop-blur-sm transition-all duration-300",
+          !isSidebarOpen && "lg:-ml-80",
+          "fixed inset-0 z-40 lg:relative lg:translate-x-0 lg:w-80 lg:inset-auto",
+          mobileActiveView === 'tasks' ? "flex" : "hidden lg:flex"
+        )}>
+          {/* Mobile Header for Tasks View */}
+          <div className="lg:hidden p-6 pb-0 flex items-center justify-between">
+            <h2 className="text-xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark">Tasks</h2>
+            <Button variant="ghost" size="icon" onClick={() => setMobileActiveView('dashboard')} className="rounded-full">
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+
+          <div className="p-6 space-y-6">
+            <div className="relative p-1 bg-border/30 dark:bg-surface-muted-dark rounded-2xl flex">
+              <motion.div 
+                layoutId="active-tab-bg"
+                className="absolute inset-y-1 bg-surface dark:bg-surface-muted-dark rounded-xl shadow-sm z-0"
+                style={{ 
+                  width: 'calc(50% - 4px)',
+                  left: activeTab === 'assignment' ? '4px' : 'calc(50% + 0px)'
+                }}
+                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+              />
+              <button 
+                onClick={() => setActiveTab('assignment')}
+                className={cn(
+                  "flex-1 py-2.5 text-xs font-bold rounded-xl transition-all relative z-10", 
+                  activeTab === 'assignment' ? "text-primary dark:text-text-main-dark" : "text-text-muted hover:text-text-main dark:hover:text-text-main-dark"
+                )}
+              >
+                Assignments
+              </button>
+              <button 
+                onClick={() => setActiveTab('exam')}
+                className={cn(
+                  "flex-1 py-2.5 text-xs font-bold rounded-xl transition-all relative z-10", 
+                  activeTab === 'exam' ? "text-primary dark:text-text-main-dark" : "text-text-muted hover:text-text-main dark:hover:text-text-main-dark"
+                )}
+              >
+                Exams
+              </button>
+            </div>
+
+            <Button onClick={openAddTask} className="w-full gap-2 py-6 rounded-2xl text-sm">
+              <Plus className="w-5 h-5" />
+              New {activeTab === 'assignment' ? 'Assignment' : 'Exam'}
+            </Button>
+
+            <div className="relative flex items-center bg-surface dark:bg-surface-muted-dark rounded-2xl px-4 py-3 border border-border dark:border-border-dark shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/40">
+              <Search className="w-4 h-4 text-text-muted mr-3" />
+              <input 
+                type="text" 
+                placeholder={`Search ${activeTab}s...`} 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-transparent border-none text-sm focus:outline-none w-full dark:text-text-main-dark placeholder:text-text-muted font-medium"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="p-1 hover:bg-surface-muted dark:hover:bg-surface-muted-dark rounded-full transition-colors"
+                >
+                  <X className="w-3 h-3 text-text-muted" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2 custom-scrollbar">
+            {tasks.filter(t => {
+              const matchesTab = t.type === activeTab;
+              const matchesSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                   (t.description || '').toLowerCase().includes(searchQuery.toLowerCase());
+              return matchesTab && matchesSearch;
+            }).length === 0 ? (
+              <div className="py-12 text-center px-4">
+                <div className="w-16 h-16 bg-border/30 dark:bg-surface-muted-dark rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <BookOpen className="text-text-muted w-8 h-8" />
+                </div>
+                <p className="text-sm font-bold text-text-muted dark:text-text-muted-dark">
+                  {searchQuery ? "No matching tasks" : `No ${activeTab}s yet`}
+                </p>
+                <p className="text-xs text-text-muted mt-2 leading-relaxed">
+                  {searchQuery ? "Try a different search term." : "Get started by adding your first task."}
+                </p>
+              </div>
+            ) : (
+              <AnimatePresence mode="popLayout">
+                {tasks.filter(t => {
+                  const matchesTab = t.type === activeTab;
+                  const matchesSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                       (t.description || '').toLowerCase().includes(searchQuery.toLowerCase());
+                  return matchesTab && matchesSearch;
+                }).map(task => (
+                  <motion.div 
+                    key={task.id} 
+                    layout
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="relative group"
+                  >
+                    <button
+                      onClick={() => {
+                        setSelectedTaskId(task.id);
+                        setMobileActiveView('dashboard');
+                      }}
+                      className={cn(
+                        "w-full text-left p-4 rounded-2xl transition-all relative pr-12 border",
+                        selectedTaskId === task.id 
+                          ? "bg-surface dark:bg-surface-muted-dark border-primary/20 shadow-lg shadow-primary/5 text-primary dark:text-text-main-dark" 
+                          : "bg-transparent border-transparent hover:bg-surface/50 dark:hover:bg-surface-muted-dark/50 text-text-muted dark:text-text-muted-dark"
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={cn(
+                          "text-[9px] font-extrabold uppercase tracking-[0.2em]",
+                          selectedTaskId === task.id ? "text-primary/70" : "text-text-muted"
+                        )}>
+                          {task.type}
+                        </span>
+                      </div>
+                      <h3 className={cn("text-sm font-bold line-clamp-1 tracking-tight", task.status === 'completed' && "line-through opacity-50")}>{task.title}</h3>
+                      <div className="flex items-center gap-2 mt-2.5 text-[10px] font-medium opacity-70">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{task.dueDate ? format(task.dueDate, 'MMM d, yyyy') : 'No due date'}</span>
+                      </div>
+                      {selectedTaskId === task.id && (
+                        <motion.div layoutId="active-indicator" className="absolute left-0 top-4 bottom-4 w-1 bg-primary rounded-full" />
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleTaskStatus(task);
+                      }}
+                      className={cn(
+                        "absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-xl transition-all",
+                        task.status === 'completed' 
+                          ? "text-green-600 bg-green-50 dark:bg-green-900/20" 
+                          : "text-text-muted/30 hover:text-primary hover:bg-primary/10 dark:hover:bg-primary/20"
+                      )}
+                    >
+                      {task.status === 'completed' ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
+          </div>
+        </aside>
+
+        {/* Center Panel - Task Details */}
+        <section className={cn(
+          "flex-1 overflow-y-auto bg-surface dark:bg-surface-dark p-6 lg:p-12 custom-scrollbar pb-24 lg:pb-12",
+          mobileActiveView !== 'dashboard' && "hidden lg:block"
+        )}>
+          {selectedTask ? (
+            <motion.div 
+              key={selectedTask.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-3xl mx-auto space-y-10"
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-primary font-bold text-[10px] uppercase tracking-[0.2em] bg-primary/5 dark:bg-primary/10 px-3 py-1.5 rounded-full border border-primary/10">
+                    {selectedTask.type === 'assignment' ? <BookOpen className="w-4 h-4" /> : <GraduationCap className="w-4 h-4" />}
+                    <span>{selectedTask.type}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => toggleTaskStatus(selectedTask)} 
+                      className={cn(
+                        "gap-2 font-bold text-[10px] uppercase tracking-wider rounded-full px-4",
+                        selectedTask.status === 'completed' ? "text-green-600 bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-900/30" : "text-text-muted hover:text-primary"
+                      )}
+                    >
+                      {selectedTask.status === 'completed' ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
+                      {selectedTask.status === 'completed' ? 'Completed' : 'Mark Complete'}
+                    </Button>
+                    <div className="h-4 w-px bg-border dark:bg-border-dark mx-1" />
+                    <Button variant="ghost" size="icon" onClick={() => openEditTask(selectedTask)} className="text-text-muted hover:text-primary rounded-full">
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => confirmDelete(selectedTask.id)} className="text-text-muted hover:text-red-500 rounded-full">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h1 className={cn(
+                    "text-4xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark leading-tight",
+                    selectedTask.status === 'completed' && "opacity-50"
+                  )}>
+                    {selectedTask.title}
+                  </h1>
+                  <div className="flex flex-wrap gap-6 text-xs text-text-muted dark:text-text-muted-dark font-bold uppercase tracking-widest">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-primary" />
+                      <span>{selectedTask.dueDate ? `Due ${format(selectedTask.dueDate, 'MMMM d, yyyy')}` : 'No due date'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-primary" />
+                      <span>{selectedTask.progress}% Complete</span>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedTask.description && (
+                  <div className="p-6 bg-surface-muted dark:bg-surface-muted-dark rounded-3xl border border-border dark:border-border-dark">
+                    <p className="text-sm text-text-main dark:text-text-main-dark leading-relaxed whitespace-pre-wrap">
+                      {selectedTask.description}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-4">
+                <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-text-muted dark:text-text-muted-dark">
+                  <span>Task Progress</span>
+                  <span className="text-primary">{selectedTask.progress}%</span>
+                </div>
+                <div className="h-3 bg-surface-muted dark:bg-surface-muted-dark rounded-full overflow-hidden border border-border dark:border-border-dark">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${selectedTask.progress}%` }}
+                    className="h-full bg-primary shadow-[0_0_20px_rgba(79,70,229,0.4)]"
+                    transition={{ type: 'spring', bounce: 0, duration: 0.8 }}
+                  />
+                </div>
+              </div>
+
+              {/* Subtasks */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                      <Layout className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-lg font-bold tracking-tight text-text-main dark:text-text-main-dark">Checklist</h2>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setIsAddingSubtask(!isAddingSubtask)} 
+                    className="text-primary font-bold text-xs"
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> Add Step
+                  </Button>
+                </div>
+                
+                <div className="space-y-3">
+                  <AnimatePresence mode="popLayout">
+                    {isAddingSubtask && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="p-4 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl flex gap-3"
+                      >
+                        <input 
+                          autoFocus
+                          className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-text-main dark:text-text-main-dark placeholder:text-text-muted"
+                          placeholder="What's the next step?"
+                          value={newSubtaskTitle}
+                          onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') addSubtask();
+                            if (e.key === 'Escape') setIsAddingSubtask(false);
+                          }}
+                        />
+                        <Button size="sm" onClick={addSubtask} disabled={!newSubtaskTitle.trim()}>
+                          Add Step
+                        </Button>
+                      </motion.div>
+                    )}
+
+                    {subtasks.length === 0 && !isAddingSubtask ? (
+                      <div className="p-12 border-2 border-dashed border-border dark:border-border-dark rounded-3xl text-center">
+                        <p className="text-sm text-text-muted">Break this task into smaller, manageable steps.</p>
+                      </div>
+                    ) : (
+                      subtasks.map(sub => (
+                        <motion.div 
+                          key={sub.id}
+                          layout
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.98 }}
+                          onClick={() => toggleSubtask(sub)}
+                          className={cn(
+                            "group flex items-center gap-4 p-4 rounded-2xl border cursor-pointer transition-all",
+                            sub.completed 
+                              ? "bg-surface-muted/50 dark:bg-surface-muted-dark/30 border-transparent opacity-60" 
+                              : "bg-surface dark:bg-surface-muted-dark border-border dark:border-border-dark hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-6 h-6 rounded-lg flex items-center justify-center transition-all",
+                            sub.completed ? "bg-green-500 text-white" : "border-2 border-border dark:border-border-dark text-transparent group-hover:border-primary"
+                          )}>
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                          <span className={cn(
+                            "flex-1 text-sm font-medium text-text-main dark:text-text-main-dark", 
+                            sub.completed && "line-through opacity-50"
+                          )}>
+                            {sub.title}
+                          </span>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={(e: any) => { e.stopPropagation(); deleteSubtask(sub.id); }}
+                            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-500 rounded-full"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </motion.div>
+                      ))
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8">
+              <div className="w-24 h-24 bg-surface-muted dark:bg-surface-muted-dark rounded-[2.5rem] flex items-center justify-center mb-6 shadow-inner">
+                <GraduationCap className="w-12 h-12 text-text-muted/30" />
+              </div>
+              <h2 className="text-2xl font-extrabold text-text-main dark:text-text-main-dark tracking-tight">Select a task to begin</h2>
+              <p className="text-text-muted dark:text-text-muted-dark mt-2 max-w-xs leading-relaxed">Choose an assignment or exam from the sidebar to view details and manage your progress.</p>
+            </div>
+          )}
+        </section>
+
+        {/* Right Sidebar Toggle */}
+        <button 
+          onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+          className={cn(
+            "hidden xl:flex absolute top-1/2 -translate-y-1/2 z-50 w-6 h-12 bg-surface dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-full shadow-lg items-center justify-center transition-all duration-300 hover:scale-110 hover:bg-surface-muted dark:hover:bg-surface-muted-dark group",
+            isRightPanelOpen ? "right-96 translate-x-1/2" : "right-4"
+          )}
+          title={isRightPanelOpen ? "Hide Study Studio" : "Show Study Studio"}
+        >
+          {isRightPanelOpen ? <ChevronRight className="w-4 h-4 text-text-muted group-hover:text-primary" /> : <ChevronLeft className="w-4 h-4 text-text-muted group-hover:text-primary" />}
+        </button>
+
+        {/* Right Sidebar - Flashcards & Notes */}
+        <aside className={cn(
+          "w-96 border-l border-border dark:border-border-dark flex flex-col bg-surface-muted dark:bg-surface-dark/50 backdrop-blur-sm transition-all duration-300",
+          !isRightPanelOpen && "xl:-mr-96",
+          "fixed inset-0 z-40 xl:relative xl:translate-x-0",
+          mobileActiveView === 'studio' ? "flex translate-x-0" : "hidden xl:flex"
+        )}>
+          <div className="p-8 flex-1 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                  <BrainCircuit className="w-5 h-5" />
+                </div>
+                <h2 className="text-xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark">Study Studio</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" onClick={() => setIsAddingFlashcard(!isAddingFlashcard)} className="rounded-full">
+                  {isAddingFlashcard ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                </Button>
+                <Button variant="ghost" size="icon" className="xl:hidden rounded-full" onClick={() => setMobileActiveView('dashboard')}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
+              {/* Key Concepts */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted dark:text-text-muted-dark">
+                    <Lightbulb className="w-3.5 h-3.5" />
+                    <span>Key Concepts</span>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setIsAddingConcept(!isAddingConcept)} 
+                    className={cn("h-6 w-6 rounded-full", isAddingConcept ? "text-primary bg-primary/10" : "text-text-muted")}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                
+                <div className="space-y-3">
+                  <AnimatePresence mode="popLayout">
+                    {isAddingConcept && (
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="p-4 bg-surface dark:bg-surface-muted-dark rounded-2xl border border-primary/20 shadow-lg shadow-primary/5"
+                      >
+                        <textarea 
+                          autoFocus
+                          className="w-full bg-transparent border-none focus:ring-0 text-sm text-text-main dark:text-text-main-dark placeholder:text-text-muted min-h-[80px] resize-none p-0"
+                          placeholder="What's the core idea?"
+                          value={newConceptContent}
+                          onChange={(e) => setNewConceptContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              addNote('concept');
+                            }
+                            if (e.key === 'Escape') setIsAddingConcept(false);
+                          }}
+                        />
+                        <div className="flex justify-end gap-2 mt-2">
+                          <Button size="sm" variant="ghost" onClick={() => setIsAddingConcept(false)}>Cancel</Button>
+                          <Button size="sm" onClick={() => addNote('concept')} disabled={!newConceptContent.trim()}>Add</Button>
+                        </div>
+                      </motion.div>
+                    )}
+                    
+                    {notes.filter(n => n.type === 'concept').map(note => (
+                      <motion.div 
+                        key={note.id} 
+                        layout
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="group relative p-4 bg-surface dark:bg-surface-muted-dark/50 rounded-2xl border border-border dark:border-border-dark text-sm text-text-main dark:text-text-main-dark shadow-sm hover:border-primary/20 transition-all"
+                      >
+                        <p className="leading-relaxed">{note.content}</p>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => deleteNote(note.id)}
+                          className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-500 rounded-full"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              {/* Flashcards Header */}
+              <div className="pt-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted dark:text-text-muted-dark">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Flashcards</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsAddingFlashcard(!isAddingFlashcard)} 
+                  className={cn("h-6 w-6 rounded-full", isAddingFlashcard ? "text-primary bg-primary/10" : "text-text-muted")}
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {isAddingFlashcard && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-6 bg-surface dark:bg-surface-muted-dark rounded-3xl border-2 border-primary/20 shadow-xl shadow-primary/5 space-y-4"
+                >
+                  <Input 
+                    label="Question" 
+                    placeholder="What is...?" 
+                    value={newFlashcardQuestion}
+                    onChange={(e: any) => setNewFlashcardQuestion(e.target.value)}
+                  />
+                  <Input 
+                    label="Optional Hint" 
+                    placeholder="Think about..." 
+                    value={newFlashcardHint}
+                    onChange={(e: any) => setNewFlashcardHint(e.target.value)}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-text-muted dark:text-text-muted-dark uppercase tracking-wider ml-1">Answer</label>
+                    <textarea 
+                      className="w-full bg-surface-muted dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-2xl p-4 text-sm focus:outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all dark:text-text-main-dark min-h-[100px]"
+                      placeholder="The answer is..."
+                      value={newFlashcardAnswer}
+                      onChange={(e) => setNewFlashcardAnswer(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button variant="secondary" className="flex-1" onClick={() => setIsAddingFlashcard(false)}>Cancel</Button>
+                    <Button className="flex-1" onClick={addFlashcard}>Add Card</Button>
+                  </div>
+                </motion.div>
+              )}
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-6">
+                  {notes.filter(n => n.type === 'flashcard').map(note => {
+                    const isFlipped = flippedCards[note.id];
+                    const showHint = revealedHints[note.id];
+
+                    return (
+                      <div key={note.id} className="group relative perspective-1000 h-64">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e: any) => { e.stopPropagation(); deleteNote(note.id); }}
+                          className="absolute -top-2 -right-2 z-20 opacity-0 group-hover:opacity-100 bg-surface dark:bg-surface-muted-dark shadow-lg text-text-muted hover:text-red-500 rounded-full"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                        
+                        <motion.div 
+                          className="w-full h-full relative preserve-3d cursor-pointer"
+                          animate={{ rotateY: isFlipped ? 180 : 0 }}
+                          transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                          onClick={() => setFlippedCards(prev => ({ ...prev, [note.id]: !prev[note.id] }))}
+                        >
+                          {/* Front */}
+                          <div className="absolute inset-0 backface-hidden bg-gradient-to-br from-primary to-primary-hover rounded-3xl p-8 flex flex-col shadow-xl shadow-primary/20 border border-white/10">
+                            <div className="flex items-center gap-2 text-white/60 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">
+                              <Layers className="w-4 h-4" />
+                              <span>Question</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-center text-center">
+                              <p className="text-white font-bold text-lg leading-tight tracking-tight">
+                                {note.question}
+                              </p>
+                            </div>
+
+                            <div className="mt-4 flex flex-col items-center gap-4">
+                              {note.hint && (
+                                <div className="w-full">
+                                  {showHint ? (
+                                    <motion.div 
+                                      initial={{ opacity: 0, y: 5 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      className="px-4 py-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10"
+                                    >
+                                      <p className="text-[11px] text-white/90 italic text-center">
+                                        {note.hint}
+                                      </p>
+                                    </motion.div>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setRevealedHints(prev => ({ ...prev, [note.id]: true }));
+                                      }}
+                                      className="mx-auto flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-[10px] text-white font-bold uppercase tracking-widest transition-all border border-white/10"
+                                    >
+                                      <HelpCircle className="w-3.5 h-3.5" />
+                                      Show Hint
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2 text-[9px] text-white/50 font-bold uppercase tracking-[0.3em]">
+                                <RotateCw className="w-3 h-3" />
+                                Flip for answer
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Back */}
+                          <div className="absolute inset-0 backface-hidden bg-surface dark:bg-surface-muted-dark rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-xl border border-border dark:border-border-dark rotate-y-180">
+                            <div className="absolute top-6 left-6 text-text-muted/30 dark:text-text-muted-dark/30">
+                              <Eye className="w-5 h-5" />
+                            </div>
+                            <div className="flex-1 flex items-center justify-center">
+                              <p className="text-text-main dark:text-text-main-dark font-extrabold text-xl leading-tight tracking-tight">
+                                {note.answer}
+                              </p>
+                            </div>
+                            <div className="mt-6 flex items-center gap-2 text-[9px] text-text-muted dark:text-text-muted-dark font-bold uppercase tracking-[0.3em]">
+                              <RotateCw className="w-3 h-3" />
+                              Flip back
+                            </div>
+                          </div>
+                        </motion.div>
+                      </div>
+                    );
+                  })}
+                  {notes.filter(n => n.type === 'flashcard').length === 0 && !isAddingFlashcard && (
+                    <div className="py-12 text-center border-2 border-dashed border-border dark:border-border-dark rounded-3xl">
+                      <Layers className="w-10 h-10 text-text-muted/30 mx-auto mb-3" />
+                      <p className="text-sm font-bold text-text-muted">No flashcards yet</p>
+                      <p className="text-xs text-text-muted/70 mt-1">Create cards to test your knowledge.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+      </main>
+
+      {/* Mobile Navigation Bar */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-20 bg-surface/80 dark:bg-surface-dark/80 backdrop-blur-lg border-t border-border dark:border-border-dark px-6 flex items-center justify-around z-50">
+        <button 
+          onClick={() => setMobileActiveView('tasks')}
+          className={cn(
+            "flex flex-col items-center gap-1 transition-all",
+            mobileActiveView === 'tasks' ? "text-primary scale-110" : "text-text-muted"
+          )}
+        >
+          <div className={cn(
+            "p-2 rounded-xl transition-all",
+            mobileActiveView === 'tasks' ? "bg-primary/10" : "bg-transparent"
+          )}>
+            <Layout className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Tasks</span>
+        </button>
+
+        <button 
+          onClick={() => setMobileActiveView('dashboard')}
+          className={cn(
+            "flex flex-col items-center gap-1 transition-all",
+            mobileActiveView === 'dashboard' ? "text-primary scale-110" : "text-text-muted"
+          )}
+        >
+          <div className={cn(
+            "p-2 rounded-xl transition-all",
+            mobileActiveView === 'dashboard' ? "bg-primary/10" : "bg-transparent"
+          )}>
+            <GraduationCap className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Dashboard</span>
+        </button>
+
+        <button 
+          onClick={() => setMobileActiveView('studio')}
+          className={cn(
+            "flex flex-col items-center gap-1 transition-all",
+            mobileActiveView === 'studio' ? "text-primary scale-110" : "text-text-muted"
+          )}
+        >
+          <div className={cn(
+            "p-2 rounded-xl transition-all",
+            mobileActiveView === 'studio' ? "bg-primary/10" : "bg-transparent"
+          )}>
+            <BrainCircuit className="w-6 h-6" />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Key Ideas</span>
+        </button>
+      </nav>
+
+      {/* Task Modal */}
+      <Modal 
+        isOpen={isTaskModalOpen} 
+        onClose={() => setIsTaskModalOpen(false)} 
+        title={taskModalMode === 'add' ? `Add ${activeTab === 'assignment' ? 'Assignment' : 'Exam'}` : 'Edit Task'}
+      >
+        <form onSubmit={handleTaskSubmit} className="space-y-4">
+          <Input 
+            label="Title" 
+            placeholder="e.g. Physics Lab Report" 
+            value={taskModalTitle}
+            onChange={(e: any) => setTaskModalTitle(e.target.value)}
+            required
+          />
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-text-muted dark:text-text-muted-dark uppercase ml-1">Description</label>
+            <textarea 
+              className="w-full bg-surface-muted border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all dark:bg-surface-muted-dark dark:border-border-dark dark:text-text-main-dark min-h-[100px]"
+              placeholder="What needs to be done?"
+              value={taskModalDesc}
+              onChange={(e) => setTaskModalDesc(e.target.value)}
+            />
+          </div>
+          <Input 
+            label="Due Date (Optional)" 
+            type="datetime-local" 
+            value={taskModalDueDate}
+            onChange={(e: any) => setTaskModalDueDate(e.target.value)}
+          />
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => setIsTaskModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" className="flex-1">
+              {taskModalMode === 'add' ? 'Create Task' : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal 
+        isOpen={isDeleteModalOpen} 
+        onClose={() => setIsDeleteModalOpen(false)} 
+        title="Delete Task"
+      >
+        <div className="space-y-6">
+          <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-100 dark:border-red-800">
+            <div className="w-10 h-10 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center text-red-600">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-900 dark:text-red-200">Are you sure?</p>
+              <p className="text-xs text-red-700 dark:text-red-400">This action cannot be undone. All subtasks and notes will be lost.</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => setIsDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" className="flex-1" onClick={deleteTask}>
+              Delete Task
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+export default function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "calendarSyncEnabled": { "type": "boolean" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "An assignment or exam task",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["assignment", "exam"] },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "progress": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "calendarEventId": { "type": "string" }
+      },
+      "required": ["userId", "title", "type", "status"]
+    },
+    "SubTask": {
+      "title": "SubTask",
+      "description": "A sub-task within a task",
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string" },
+        "title": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "order": { "type": "number" }
+      },
+      "required": ["taskId", "title", "completed"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Study notes or key concepts for a task",
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string" },
+        "content": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "hint": { "type": "string" },
+        "type": { "type": "string", "enum": ["concept", "flashcard"] }
+      },
+      "required": ["taskId", "type"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Assignments and exams"
+    },
+    "/tasks/{taskId}/subtasks/{subtaskId}": {
+      "schema": "SubTask",
+      "description": "Sub-tasks for a specific task"
+    },
+    "/tasks/{taskId}/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Notes and flashcards for a specific task"
+    }
+  }
+}
