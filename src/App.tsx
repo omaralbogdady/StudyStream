@@ -8,7 +8,6 @@ import {
   auth, 
   db, 
   googleProvider, 
-  calendarProvider,
   signInWithPopup, 
   signOut, 
   onAuthStateChanged,
@@ -32,7 +31,6 @@ import {
   GoogleAuthProvider
 } from './firebase';
 import { 
-  Calendar,
   Layout, 
   BookOpen, 
   GraduationCap, 
@@ -60,8 +58,7 @@ import {
   RotateCw,
   HelpCircle,
   Eye,
-  Lightbulb,
-  Loader2
+  Lightbulb
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -282,7 +279,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [calendarToken, setCalendarToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -290,7 +286,6 @@ function App() {
   const [displayName, setDisplayName] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [isCalendarLoading, setIsCalendarLoading] = useState(false);
 
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -317,6 +312,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [mobileActiveView, setMobileActiveView] = useState<'tasks' | 'dashboard' | 'studio'>('dashboard');
+  const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
 
   // Task Modal State
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -475,93 +471,6 @@ function App() {
     setTasks([]);
     setSubtasks([]);
     setNotes([]);
-    setCalendarToken(null);
-  };
-
-  const handleCalendarConnect = async () => {
-    if (isCalendarLoading) return;
-    
-    // If already connected, we could offer to disconnect, but for now let's just refresh the token
-    setIsCalendarLoading(true);
-    try {
-      const result = await signInWithPopup(auth, calendarProvider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setCalendarToken(credential.accessToken);
-        if (user) {
-          await updateDoc(doc(db, 'users', user.uid), { calendarSyncEnabled: true });
-        }
-      }
-    } catch (error: any) {
-      // Gracefully handle cancellation errors
-      if (error.code === 'auth/cancelled-popup-request' || 
-          error.code === 'auth/popup-closed-by-user' ||
-          error.code === 'auth/request-cancelled') {
-        console.log('Calendar connection cancelled by user or browser');
-      } else {
-        handleFirestoreError(error, OperationType.UPDATE, 'calendar-auth');
-      }
-    } finally {
-      setIsCalendarLoading(false);
-    }
-  };
-
-  const syncTaskToCalendar = async (task: any, taskId: string) => {
-    if (!calendarToken || !task.dueDate) return;
-
-    const dueDate = task.dueDate instanceof Timestamp ? task.dueDate.toDate() : task.dueDate;
-
-    const event = {
-      summary: `${task.type === 'exam' ? 'Exam' : 'Assignment'}: ${task.title}`,
-      description: task.description,
-      start: {
-        dateTime: dueDate.toISOString(),
-      },
-      end: {
-        dateTime: new Date(dueDate.getTime() + 60 * 60 * 1000).toISOString(), // 1 hour duration
-      },
-    };
-
-    try {
-      const method = task.calendarEventId ? 'PATCH' : 'POST';
-      const url = task.calendarEventId 
-        ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${task.calendarEventId}`
-        : `https://www.googleapis.com/calendar/v3/calendars/primary/events`;
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Authorization': `Bearer ${calendarToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(event),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (!task.calendarEventId) {
-          await updateDoc(doc(db, 'tasks', taskId), { calendarEventId: data.id });
-        }
-      } else {
-        if (response.status === 401) setCalendarToken(null);
-      }
-    } catch (error) {
-      console.error('Calendar sync error:', error);
-    }
-  };
-
-  const deleteCalendarEvent = async (eventId: string) => {
-    if (!calendarToken) return;
-    try {
-      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${calendarToken}`,
-        },
-      });
-    } catch (error) {
-      console.error('Calendar delete error:', error);
-    }
   };
 
   const openAddTask = () => {
@@ -617,10 +526,6 @@ function App() {
         taskId = docRef.id;
       }
       
-      if (userProfile?.calendarSyncEnabled && calendarToken && taskData.dueDate) {
-        syncTaskToCalendar({ ...taskData, calendarEventId: taskToEdit?.calendarEventId }, taskId);
-      }
-      
       setIsTaskModalOpen(false);
     } catch (error) {
       handleFirestoreError(error, taskModalMode === 'edit' ? OperationType.UPDATE : OperationType.CREATE, 'tasks');
@@ -630,10 +535,6 @@ function App() {
   const deleteTask = async () => {
     if (!taskIdToDelete) return;
     try {
-      const taskToDelete = tasks.find(t => t.id === taskIdToDelete);
-      if (taskToDelete?.calendarEventId && calendarToken) {
-        deleteCalendarEvent(taskToDelete.calendarEventId);
-      }
       await deleteDoc(doc(db, 'tasks', taskIdToDelete));
       if (selectedTaskId === taskIdToDelete) setSelectedTaskId(null);
       setIsDeleteModalOpen(false);
@@ -876,29 +777,6 @@ function App() {
           <Button variant="ghost" size="icon" onClick={() => setDarkMode(!darkMode)} className="rounded-full w-9 h-9 sm:w-10 sm:h-10">
             {darkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-text-muted" />}
           </Button>
-
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleCalendarConnect} 
-            disabled={isCalendarLoading}
-            className={cn(
-              "rounded-full transition-all w-9 h-9 sm:w-10 sm:h-10",
-              userProfile?.calendarSyncEnabled && calendarToken ? "text-green-500 bg-green-50 dark:bg-green-900/20" : "text-text-muted"
-            )}
-            title={userProfile?.calendarSyncEnabled && calendarToken ? "Calendar Synced" : "Connect Google Calendar"}
-          >
-            {isCalendarLoading ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-              >
-                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5" />
-              </motion.div>
-            ) : (
-              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            )}
-          </Button>
           
           <div className="h-8 w-px bg-border dark:bg-border-dark mx-0.5 sm:mx-1" />
           
@@ -935,17 +813,9 @@ function App() {
         <aside className={cn(
           "border-r border-border dark:border-border-dark flex flex-col bg-surface-muted dark:bg-surface-dark/50 backdrop-blur-sm transition-all duration-300",
           !isSidebarOpen && "lg:-ml-80",
-          "fixed inset-0 z-40 lg:relative lg:translate-x-0 lg:w-80 lg:inset-auto",
+          "fixed top-20 bottom-20 inset-x-0 z-40 lg:relative lg:top-0 lg:bottom-0 lg:inset-auto lg:w-80",
           mobileActiveView === 'tasks' ? "flex" : "hidden lg:flex"
         )}>
-          {/* Mobile Header for Tasks View */}
-          <div className="lg:hidden p-6 pb-0 flex items-center justify-between">
-            <h2 className="text-xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark">Tasks</h2>
-            <Button variant="ghost" size="icon" onClick={() => setMobileActiveView('dashboard')} className="rounded-full">
-              <X className="w-5 h-5" />
-            </Button>
-          </div>
-
           <div className="p-6 space-y-6">
             <div className="relative p-1 bg-border/30 dark:bg-surface-muted-dark rounded-2xl flex">
               <motion.div 
@@ -1040,6 +910,7 @@ function App() {
                       onClick={() => {
                         setSelectedTaskId(task.id);
                         setMobileActiveView('dashboard');
+                        setIsTaskMenuOpen(false);
                       }}
                       className={cn(
                         "w-full text-left p-4 rounded-2xl transition-all relative pr-12 border",
@@ -1088,7 +959,7 @@ function App() {
 
         {/* Center Panel - Task Details */}
         <section className={cn(
-          "flex-1 overflow-y-auto bg-surface dark:bg-surface-dark p-6 lg:p-12 custom-scrollbar pb-24 lg:pb-12",
+          "flex-1 min-w-0 overflow-y-auto bg-surface dark:bg-surface-dark p-4 sm:p-6 lg:p-4 xl:p-12 custom-scrollbar pb-24 lg:pb-12",
           mobileActiveView !== 'dashboard' && "hidden lg:block"
         )}>
           {selectedTask ? (
@@ -1096,43 +967,82 @@ function App() {
               key={selectedTask.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="max-w-3xl mx-auto space-y-10"
+              className="w-full max-w-3xl mx-auto space-y-8 sm:space-y-10"
             >
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-primary font-bold text-[10px] uppercase tracking-[0.2em] bg-primary/5 dark:bg-primary/10 px-3 py-1.5 rounded-full border border-primary/10">
-                    {selectedTask.type === 'assignment' ? <BookOpen className="w-4 h-4" /> : <GraduationCap className="w-4 h-4" />}
-                    <span>{selectedTask.type}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3 text-primary font-bold text-[10px] uppercase tracking-[0.2em] bg-primary/5 dark:bg-primary/10 px-3 py-1.5 rounded-full border border-primary/10 w-fit">
+                      {selectedTask.type === 'assignment' ? <BookOpen className="w-4 h-4" /> : <GraduationCap className="w-4 h-4" />}
+                      <span>{selectedTask.type}</span>
+                    </div>
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       onClick={() => toggleTaskStatus(selectedTask)} 
                       className={cn(
-                        "gap-2 font-bold text-[10px] uppercase tracking-wider rounded-full px-4",
+                        "gap-2 font-bold text-[10px] uppercase tracking-wider rounded-full px-3 sm:px-4",
                         selectedTask.status === 'completed' ? "text-green-600 bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-900/30" : "text-text-muted hover:text-primary"
                       )}
                     >
                       {selectedTask.status === 'completed' ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
-                      {selectedTask.status === 'completed' ? 'Completed' : 'Mark Complete'}
-                    </Button>
-                    <div className="h-4 w-px bg-border dark:bg-border-dark mx-1" />
-                    <Button variant="ghost" size="icon" onClick={() => openEditTask(selectedTask)} className="text-text-muted hover:text-primary rounded-full">
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => confirmDelete(selectedTask.id)} className="text-text-muted hover:text-red-500 rounded-full">
-                      <Trash2 className="w-4 h-4" />
+                      <span>{selectedTask.status === 'completed' ? 'Completed' : 'Uncompleted'}</span>
                     </Button>
                   </div>
                 </div>
                 <div className="space-y-3">
-                  <h1 className={cn(
-                    "text-4xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark leading-tight",
-                    selectedTask.status === 'completed' && "opacity-50"
-                  )}>
-                    {selectedTask.title}
-                  </h1>
+                  <div className="flex items-start justify-between gap-4">
+                    <h1 className={cn(
+                      "text-xl sm:text-3xl xl:text-4xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark leading-tight break-words flex-1",
+                      selectedTask.status === 'completed' && "opacity-50"
+                    )}>
+                      {selectedTask.title}
+                    </h1>
+                    <div className="relative shrink-0">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setIsTaskMenuOpen(!isTaskMenuOpen)}
+                        className="text-text-muted hover:text-primary rounded-full w-9 h-9"
+                      >
+                        <MoreVertical className="w-5 h-5" />
+                      </Button>
+                      <AnimatePresence>
+                        {isTaskMenuOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsTaskMenuOpen(false)} />
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                              className="absolute right-0 mt-2 w-48 bg-surface dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-2xl shadow-xl z-50 overflow-hidden"
+                            >
+                              <button 
+                                onClick={() => {
+                                  openEditTask(selectedTask);
+                                  setIsTaskMenuOpen(false);
+                                }}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-text-main dark:text-text-main-dark hover:bg-surface-muted dark:hover:bg-surface-muted-dark transition-colors"
+                              >
+                                <Edit3 className="w-4 h-4 text-primary" />
+                                Edit Task
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  confirmDelete(selectedTask.id);
+                                  setIsTaskMenuOpen(false);
+                                }}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Delete Task
+                              </button>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-6 text-xs text-text-muted dark:text-text-muted-dark font-bold uppercase tracking-widest">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-primary" />
@@ -1146,7 +1056,7 @@ function App() {
                 </div>
 
                 {selectedTask.description && (
-                  <div className="p-6 bg-surface-muted dark:bg-surface-muted-dark rounded-3xl border border-border dark:border-border-dark">
+                  <div className="p-4 sm:p-6 bg-surface-muted dark:bg-surface-muted-dark rounded-3xl border border-border dark:border-border-dark">
                     <p className="text-sm text-text-main dark:text-text-main-dark leading-relaxed whitespace-pre-wrap">
                       {selectedTask.description}
                     </p>
@@ -1172,18 +1082,18 @@ function App() {
 
               {/* Subtasks */}
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 bg-primary/10 rounded-xl flex items-center justify-center text-primary shrink-0">
                       <Layout className="w-4 h-4" />
                     </div>
-                    <h2 className="text-lg font-bold tracking-tight text-text-main dark:text-text-main-dark">Checklist</h2>
+                    <h2 className="text-lg font-bold tracking-tight text-text-main dark:text-text-main-dark truncate">Checklist</h2>
                   </div>
                   <Button 
                     variant="ghost" 
                     size="sm" 
                     onClick={() => setIsAddingSubtask(!isAddingSubtask)} 
-                    className="text-primary font-bold text-xs"
+                    className="text-primary font-bold text-xs shrink-0"
                   >
                     <Plus className="w-4 h-4 mr-1" /> Add Step
                   </Button>
@@ -1192,15 +1102,15 @@ function App() {
                 <div className="space-y-3">
                   <AnimatePresence mode="popLayout">
                     {isAddingSubtask && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className="p-4 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl flex gap-3"
-                      >
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className="p-4 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-2xl flex flex-col xl:flex-row gap-3"
+                        >
                         <input 
                           autoFocus
-                          className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-text-main dark:text-text-main-dark placeholder:text-text-muted"
+                          className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-text-main dark:text-text-main-dark placeholder:text-text-muted min-w-0"
                           placeholder="What's the next step?"
                           value={newSubtaskTitle}
                           onChange={(e) => setNewSubtaskTitle(e.target.value)}
@@ -1209,7 +1119,7 @@ function App() {
                             if (e.key === 'Escape') setIsAddingSubtask(false);
                           }}
                         />
-                        <Button size="sm" onClick={addSubtask} disabled={!newSubtaskTitle.trim()}>
+                        <Button size="sm" onClick={addSubtask} disabled={!newSubtaskTitle.trim()} className="shrink-0">
                           Add Step
                         </Button>
                       </motion.div>
@@ -1242,7 +1152,7 @@ function App() {
                             <CheckCircle2 className="w-4 h-4" />
                           </div>
                           <span className={cn(
-                            "flex-1 text-sm font-medium text-text-main dark:text-text-main-dark", 
+                            "flex-1 text-sm font-medium text-text-main dark:text-text-main-dark min-w-0 break-words", 
                             sub.completed && "line-through opacity-50"
                           )}>
                             {sub.title}
@@ -1277,8 +1187,8 @@ function App() {
         <button 
           onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
           className={cn(
-            "hidden xl:flex absolute top-1/2 -translate-y-1/2 z-50 w-6 h-12 bg-surface dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-full shadow-lg items-center justify-center transition-all duration-300 hover:scale-110 hover:bg-surface-muted dark:hover:bg-surface-muted-dark group",
-            isRightPanelOpen ? "right-96 translate-x-1/2" : "right-4"
+            "hidden lg:flex absolute top-1/2 -translate-y-1/2 z-50 w-6 h-12 bg-surface dark:bg-surface-muted-dark border border-border dark:border-border-dark rounded-full shadow-lg items-center justify-center transition-all duration-300 hover:scale-110 hover:bg-surface-muted dark:hover:bg-surface-muted-dark group",
+            isRightPanelOpen ? "lg:right-80 xl:right-96 translate-x-1/2" : "right-4"
           )}
           title={isRightPanelOpen ? "Hide Study Studio" : "Show Study Studio"}
         >
@@ -1287,10 +1197,11 @@ function App() {
 
         {/* Right Sidebar - Flashcards & Notes */}
         <aside className={cn(
-          "w-96 border-l border-border dark:border-border-dark flex flex-col bg-surface-muted dark:bg-surface-dark/50 backdrop-blur-sm transition-all duration-300",
-          !isRightPanelOpen && "xl:-mr-96",
-          "fixed inset-0 z-40 xl:relative xl:translate-x-0",
-          mobileActiveView === 'studio' ? "flex translate-x-0" : "hidden xl:flex"
+          "w-full lg:w-80 xl:w-96 border-l border-border dark:border-border-dark flex flex-col bg-surface-muted dark:bg-surface-dark/50 backdrop-blur-sm transition-all duration-300",
+          !isRightPanelOpen && "lg:-mr-80 xl:-mr-96",
+          "fixed top-20 bottom-20 inset-x-0 z-40 lg:relative lg:top-0 lg:bottom-0 lg:inset-auto",
+          mobileActiveView === 'studio' ? "flex translate-x-0" : "hidden lg:flex",
+          "max-w-3xl mx-auto lg:max-w-none"
         )}>
           <div className="p-8 flex-1 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-8">
@@ -1304,7 +1215,7 @@ function App() {
                 <Button variant="ghost" size="icon" onClick={() => setIsAddingFlashcard(!isAddingFlashcard)} className="rounded-full">
                   {isAddingFlashcard ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
                 </Button>
-                <Button variant="ghost" size="icon" className="xl:hidden rounded-full" onClick={() => setMobileActiveView('dashboard')}>
+                <Button variant="ghost" size="icon" className="lg:hidden rounded-full" onClick={() => setMobileActiveView('dashboard')}>
                   <X className="w-5 h-5" />
                 </Button>
               </div>
