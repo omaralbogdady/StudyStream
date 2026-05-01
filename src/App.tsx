@@ -330,6 +330,18 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [mobileActiveView, setMobileActiveView] = useState<'tasks' | 'dashboard' | 'ideas'>('dashboard');
+
+  const tagline = useMemo(() => {
+    const phrases = [
+      "What are we studying today?",
+      "What do we have next?",
+      "Ready to excel?",
+      "Stay focused, stay sharp.",
+      "Academic mastery starts here."
+    ];
+    return phrases[Math.floor(Math.random() * phrases.length)];
+  }, []);
+
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
@@ -897,7 +909,9 @@ function App() {
             </div>
             <div className="flex flex-col">
               <span className="font-extrabold text-lg sm:text-xl tracking-tight text-text-main dark:text-text-main-dark leading-none">Cognito</span>
-              <span className="hidden sm:block text-[10px] font-bold text-primary uppercase tracking-widest mt-1 opacity-80">Cognitive Command</span>
+              <span className="hidden sm:block text-[10px] font-bold text-primary uppercase tracking-widest mt-1 opacity-80">
+                {user ? tagline : "Cognitive Command"}
+              </span>
             </div>
           </motion.div>
         </div>
@@ -1091,7 +1105,7 @@ function App() {
               return matchesTab && matchesSearch;
             }).length === 0 ? (
               <div className="py-16 text-center px-4">
-                <div className="w-20 h-20 bg-primary/5 dark:bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6 rotate-3">
+                <div className="w-20 h-20 bg-primary/5 dark:bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
                   <BookOpen className="text-primary/40 w-10 h-10" />
                 </div>
                 <p className="text-base font-extrabold text-text-main dark:text-text-main-dark tracking-tight">
