@@ -73,7 +73,7 @@ export const LandingPage = ({
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 h-20 border-b border-border/50 dark:border-border-dark/50 glass z-50 px-6 sm:px-12 flex items-center justify-between">
         <div className="flex items-center gap-3 group cursor-pointer">
-          <div className="w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 rotate-3 group-hover:rotate-12 transition-transform">
+          <div className="w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 transition-transform">
             <GraduationCap className="text-white w-6 h-6" />
           </div>
           <span className="font-extrabold text-2xl tracking-tighter text-text-main dark:text-text-main-dark">Cognito</span>

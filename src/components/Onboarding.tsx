@@ -123,7 +123,8 @@ export const Onboarding = ({ onComplete, onStepChange }: OnboardingProps) => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-surface-dark/60 backdrop-blur-[4px] transition-opacity duration-700" 
+        transition={{ duration: 0.3 }}
+        className="absolute inset-0 bg-surface-dark/60 backdrop-blur-[4px]" 
         style={{
           clipPath: step.target === 'body' 
             ? 'none' 
@@ -143,7 +144,8 @@ export const Onboarding = ({ onComplete, onStepChange }: OnboardingProps) => {
             opacity: 1,
             scale: 1
           }}
-          exit={{ opacity: 0, scale: 1.1 }}
+          exit={{ opacity: 0, scale: 1.05 }}
+          transition={{ duration: 0.3 }}
           className="absolute border-4 border-primary/40 rounded-2xl shadow-[0_0_30px_rgba(var(--primary-rgb),0.3)] z-[201]"
           style={{
             boxShadow: '0 0 20px 2px var(--primary-color)',
@@ -158,8 +160,13 @@ export const Onboarding = ({ onComplete, onStepChange }: OnboardingProps) => {
           layout
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.8, y: 40, filter: 'blur(10px)' }}
-          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          exit={{ opacity: 0, scale: 0.95, y: 10, filter: 'blur(5px)' }}
+          transition={{ 
+            type: 'spring', 
+            damping: 30, 
+            stiffness: 300,
+            opacity: { duration: 0.2 }
+          }}
           className="pointer-events-auto w-full max-w-[380px] bg-surface dark:bg-surface-muted-dark rounded-[2.5rem] shadow-[0_30px_70px_rgba(0,0,0,0.4)] border-2 border-primary/20 dark:border-primary/10 overflow-hidden glass"
         >
           <div className="p-8 md:p-10 space-y-8">

@@ -63,7 +63,8 @@ import {
   Lightbulb,
   Settings,
   Palette,
-  UserX
+  UserX,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -71,6 +72,9 @@ import { Task, SubTask, Note, TaskType, UserProfile } from './types';
 import { format } from 'date-fns';
 import { LandingPage } from './components/LandingPage';
 import { Onboarding } from './components/Onboarding';
+import { explainTopic, generateConcepts, generateFlashcards } from './services/geminiService';
+import { Type } from "@google/genai";
+import Markdown from 'react-markdown';
 
 const THEME_COLORS = [
   { name: 'Blue', primary: '#3B82F6', hover: '#2563EB', light: '#EFF6FF', dark: '#1D4ED8' },
@@ -344,6 +348,11 @@ function App() {
 
   const [isTaskMenuOpen, setIsTaskMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isExplainmentModalOpen, setIsExplainmentModalOpen] = useState(false);
+  const [explainmentContent, setExplainmentContent] = useState('');
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [isGeneratingConcepts, setIsGeneratingConcepts] = useState(false);
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
 
   // Task Modal State
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -411,6 +420,7 @@ function App() {
           displayName: user.displayName || '',
           photoURL: user.photoURL || '',
           calendarSyncEnabled: false,
+          aiEnabled: false,
           hasCompletedOnboarding: false
         };
         setDoc(doc(db, 'users', user.uid), newProfile);
@@ -524,14 +534,15 @@ function App() {
   };
 
   const completeOnboarding = async () => {
+    setShowOnboarding(false);
     if (!user) return;
     try {
       await updateDoc(doc(db, 'users', user.uid), {
         hasCompletedOnboarding: true
       });
-      setShowOnboarding(false);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+      // If updating fails, the user might see onboarding again next time, but we've already closed it for this session.
+      console.error("Failed to update onboarding status in Firestore:", error);
     }
   };
 
@@ -544,6 +555,100 @@ function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
+  };
+
+  const toggleCalendarSync = async () => {
+    if (!user || !userProfile) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        calendarSyncEnabled: !userProfile.calendarSyncEnabled
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+    }
+  };
+
+  const toggleAI = async () => {
+    if (!user || !userProfile) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        aiEnabled: !userProfile.aiEnabled
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
+    }
+  };
+
+  const handleExplainTopic = async () => {
+    if (!selectedTask || !user) return;
+    setIsExplaining(true);
+    setIsExplainmentModalOpen(true);
+    setExplainmentContent('');
+    try {
+      const explanation = await explainTopic(selectedTask.title, selectedTask.description);
+      setExplainmentContent(explanation || "No explanation generated.");
+    } catch (error) {
+      console.error("AI Error:", error);
+      setExplainmentContent("Sorry, I couldn't generate an explanation right now.");
+    } finally {
+      setIsExplaining(false);
+    }
+  };
+
+  const handleGenerateAIConcepts = async () => {
+    if (!selectedTask || !user) return;
+    setIsGeneratingConcepts(true);
+    try {
+      const generated = await generateConcepts(selectedTask.title, selectedTask.description);
+      for (const concept of generated) {
+        await addDoc(collection(db, 'tasks', selectedTask.id, 'notes'), {
+          taskId: selectedTask.id,
+          content: `${concept.title}: ${concept.content}`,
+          type: 'concept'
+        });
+      }
+    } catch (error) {
+      console.error("AI Error:", error);
+    } finally {
+      setIsGeneratingConcepts(false);
+    }
+  };
+
+  const handleGenerateAIFlashcards = async () => {
+    if (!selectedTask || !user) return;
+    setIsGeneratingFlashcards(true);
+    try {
+      const generated = await generateFlashcards(selectedTask.title, selectedTask.description);
+      for (const card of generated) {
+        await addDoc(collection(db, 'tasks', selectedTask.id, 'notes'), {
+          taskId: selectedTask.id,
+          question: card.question,
+          answer: card.answer,
+          hint: card.hint,
+          type: 'flashcard'
+        });
+      }
+    } catch (error) {
+      console.error("AI Error:", error);
+    } finally {
+      setIsGeneratingFlashcards(false);
+    }
+  };
+
+  const getGoogleCalendarLink = (task: Task) => {
+    const base = 'https://www.google.com/calendar/render?action=TEMPLATE';
+    const text = encodeURIComponent(task.title);
+    const details = encodeURIComponent(task.description || '');
+    
+    let dates = '';
+    if (task.dueDate) {
+      // Format: YYYYMMDDTHHmmSSZ
+      const start = task.dueDate.toISOString().replace(/-|:|\.\d\d\d/g, '');
+      const end = new Date(task.dueDate.getTime() + 60 * 60 * 1000).toISOString().replace(/-|:|\.\d\d\d/g, '');
+      dates = `&dates=${start}/${end}`;
+    }
+    
+    return `${base}&text=${text}&details=${details}${dates}`;
   };
 
   const handleDeleteAccount = async () => {
@@ -904,7 +1009,7 @@ function App() {
             whileHover={{ scale: 1.02 }}
             className="flex items-center gap-2 sm:gap-3 cursor-default"
           >
-            <div className="w-9 h-9 sm:w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 rotate-3">
+            <div className="w-9 h-9 sm:w-10 h-10 bg-primary rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30">
               <GraduationCap className="text-white w-5 h-5 sm:w-6 h-6" />
             </div>
             <div className="flex flex-col">
@@ -980,6 +1085,53 @@ function App() {
                               )}
                             </button>
                           ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 px-1">
+                        <div className="flex items-center gap-2 text-[10px] font-extrabold text-text-muted uppercase tracking-[0.2em]">
+                          <Calendar className="w-3 h-3" />
+                          Integrations
+                        </div>
+                         <div className="flex items-center justify-between p-3 bg-surface-muted dark:bg-surface-muted-dark/50 rounded-2xl border border-border dark:border-border-dark">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-text-main dark:text-text-main-dark">Google Calendar</span>
+                            <span className="text-[10px] text-text-muted">Sync your tasks</span>
+                          </div>
+                          <button 
+                            onClick={toggleCalendarSync}
+                            className={cn(
+                              "w-10 h-6 rounded-full transition-all relative flex items-center px-1",
+                              userProfile?.calendarSyncEnabled ? "bg-primary" : "bg-border dark:bg-border-dark"
+                            )}
+                          >
+                            <motion.div 
+                              animate={{ x: userProfile?.calendarSyncEnabled ? 16 : 0 }}
+                              className="w-4 h-4 bg-white rounded-full shadow-sm"
+                            />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between p-3 bg-surface-muted dark:bg-surface-muted-dark/50 rounded-2xl border border-border dark:border-border-dark">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-text-main dark:text-text-main-dark">Gemini AI</span>
+                              <span className="text-[8px] bg-primary/10 text-primary px-1 rounded-sm uppercase font-black">Free</span>
+                            </div>
+                            <span className="text-[10px] text-text-muted">Study help & flashcards</span>
+                          </div>
+                          <button 
+                            onClick={toggleAI}
+                            className={cn(
+                              "w-10 h-6 rounded-full transition-all relative flex items-center px-1",
+                              userProfile?.aiEnabled ? "bg-primary" : "bg-border dark:bg-border-dark"
+                            )}
+                          >
+                            <motion.div 
+                              animate={{ x: userProfile?.aiEnabled ? 16 : 0 }}
+                              className="w-4 h-4 bg-white rounded-full shadow-sm"
+                            />
+                          </button>
                         </div>
                       </div>
 
@@ -1138,7 +1290,7 @@ function App() {
                         setIsTaskMenuOpen(false);
                       }}
                       className={cn(
-                        "w-full text-left p-5 rounded-[1.5rem] transition-all relative pr-12 border-2",
+                        "w-full text-left p-5 rounded-[1.5rem] transition-all relative pr-24 border-2",
                         selectedTaskId === task.id 
                           ? "bg-surface dark:bg-surface-muted-dark border-primary/20 shadow-xl shadow-primary/10 text-primary dark:text-text-main-dark scale-[1.02]" 
                           : "bg-transparent border-transparent hover:bg-surface/50 dark:hover:bg-surface-muted-dark/50 text-text-muted dark:text-text-muted-dark hover:scale-[1.01]"
@@ -1172,6 +1324,20 @@ function App() {
                         <motion.div layoutId="active-indicator" className="absolute left-0 top-4 bottom-4 w-1 bg-primary rounded-full" />
                       )}
                     </button>
+                    <div className="absolute right-14 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {userProfile?.calendarSyncEnabled && (
+                        <a 
+                          href={getGoogleCalendarLink(task)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-2.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary/10 transition-all flex items-center justify-center"
+                          title="Add to Google Calendar"
+                        >
+                          <Calendar className="w-4 h-4" />
+                        </a>
+                      )}
+                    </div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1300,6 +1466,24 @@ function App() {
                       </div>
                     </div>
                   </div>
+
+                  {userProfile?.calendarSyncEnabled && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="pt-2"
+                    >
+                      <a 
+                        href={getGoogleCalendarLink(selectedTask)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2.5 px-5 py-3 bg-primary text-white rounded-2xl text-xs font-extrabold hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all active:scale-95 group/cal"
+                      >
+                        <Calendar className="w-4 h-4 group-hover/cal:rotate-12 transition-transform" />
+                        Sync to Google Calendar
+                      </a>
+                    </motion.div>
+                  )}
                 </div>
               </div>
 
@@ -1485,6 +1669,15 @@ function App() {
                 <h2 className="text-xl font-extrabold tracking-tight text-text-main dark:text-text-main-dark">Key Ideas</h2>
               </div>
               <div className="flex items-center gap-2">
+                {userProfile?.aiEnabled && selectedTask && (
+                  <button 
+                    onClick={handleExplainTopic}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[10px] font-bold hover:bg-primary/20 transition-all border border-primary/20"
+                  >
+                    <BrainCircuit className="w-3 h-3" />
+                    Explain Topic
+                  </button>
+                )}
                 <Button variant="ghost" size="icon" className="lg:hidden rounded-full" onClick={() => setMobileActiveView('dashboard')}>
                   <X className="w-5 h-5" />
                 </Button>
@@ -1499,14 +1692,26 @@ function App() {
                     <Lightbulb className="w-3.5 h-3.5" />
                     <span>Key Concepts</span>
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => setIsAddingConcept(!isAddingConcept)} 
-                    className={cn("h-8 w-8 rounded-full", isAddingConcept ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/5")}
-                  >
-                    {isAddingConcept ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {userProfile?.aiEnabled && selectedTask && (
+                      <button 
+                        onClick={handleGenerateAIConcepts}
+                        disabled={isGeneratingConcepts}
+                        className="flex items-center gap-1.5 px-2 py-1 hover:bg-primary/5 text-primary rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+                      >
+                        <RotateCw className={cn("w-3 h-3", isGeneratingConcepts && "animate-spin")} />
+                        AI Generate
+                      </button>
+                    )}
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => setIsAddingConcept(!isAddingConcept)} 
+                      className={cn("h-8 w-8 rounded-full", isAddingConcept ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/5")}
+                    >
+                      {isAddingConcept ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="space-y-3">
@@ -1571,14 +1776,26 @@ function App() {
                   <Layers className="w-3.5 h-3.5" />
                   <span>Flashcards</span>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setIsAddingFlashcard(!isAddingFlashcard)} 
-                  className={cn("h-8 w-8 rounded-full", isAddingFlashcard ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/5")}
-                >
-                  {isAddingFlashcard ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {userProfile?.aiEnabled && selectedTask && (
+                    <button 
+                      onClick={handleGenerateAIFlashcards}
+                      disabled={isGeneratingFlashcards}
+                      className="flex items-center gap-1.5 px-2 py-1 hover:bg-primary/5 text-primary rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+                    >
+                      <RotateCw className={cn("w-3 h-3", isGeneratingFlashcards && "animate-spin")} />
+                      AI Generate
+                    </button>
+                  )}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setIsAddingFlashcard(!isAddingFlashcard)} 
+                    className={cn("h-8 w-8 rounded-full", isAddingFlashcard ? "text-primary bg-primary/10" : "text-text-muted hover:text-primary hover:bg-primary/5")}
+                  >
+                    {isAddingFlashcard ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                  </Button>
+                </div>
               </div>
 
               {isAddingFlashcard && (
@@ -1891,6 +2108,42 @@ function App() {
             >
               Delete Forever
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Explanation Modal */}
+      <Modal 
+        isOpen={isExplainmentModalOpen} 
+        onClose={() => setIsExplainmentModalOpen(false)} 
+        title="AI Personal Tutor"
+      >
+        <div className="p-8 space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
+              <BrainCircuit className={cn("w-6 h-6", isExplaining && "animate-pulse")} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-extrabold text-text-main dark:text-text-main-dark">Deep Dive</h3>
+              <p className="text-xs text-text-muted">Mastering {selectedTask?.title}</p>
+            </div>
+          </div>
+
+          <div className="bg-surface-muted dark:bg-surface-muted-dark/50 rounded-3xl p-6 border border-border dark:border-border-dark min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
+            {isExplaining ? (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <p className="text-sm font-bold text-text-muted">Gemini is thinking...</p>
+              </div>
+            ) : (
+              <div className="prose prose-sm dark:prose-invert max-w-none text-text-main dark:text-text-main-dark leading-relaxed font-medium">
+                <Markdown>{explainmentContent}</Markdown>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={() => setIsExplainmentModalOpen(false)} className="px-8">Got it!</Button>
           </div>
         </div>
       </Modal>

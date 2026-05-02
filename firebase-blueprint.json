@@ -11,6 +11,7 @@
         "photoURL": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "calendarSyncEnabled": { "type": "boolean" },
+        "aiEnabled": { "type": "boolean" },
         "hasCompletedOnboarding": { "type": "boolean" },
         "themeColor": { "type": "string" }
       },
