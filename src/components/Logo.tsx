@@ -1,8 +1,6 @@
 import React from 'react';
 import { cn } from '../lib/utils';
 
-import logoImg from '../assets/images/regenerated_image_1777829121829.png';
-
 interface LogoProps {
   className?: string;
   showBackground?: boolean;
@@ -12,7 +10,7 @@ export const Logo = ({ className, showBackground = true }: LogoProps) => {
   if (showBackground) {
     return (
       <img 
-        src={logoImg} 
+        src="/logo.png" 
         alt="Lumina" 
         className={cn("object-contain", className)} 
       />
