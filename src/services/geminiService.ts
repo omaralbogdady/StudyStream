@@ -19,7 +19,7 @@ export const explainTopic = async (topic: string, context: string = "") => {
     
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to generate explanation");
+      throw new Error(errorData.error?.message || errorData.error || "Failed to generate explanation");
     }
     
     const data = await response.json();
@@ -40,7 +40,7 @@ export const generateConcepts = async (topic: string, context: string = "") => {
     
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to generate concepts");
+      throw new Error(errorData.error?.message || errorData.error || "Failed to generate concepts");
     }
     
     return await response.json() as GeneratedConcept[];
@@ -60,7 +60,7 @@ export const generateFlashcards = async (topic: string, context: string = "") =>
     
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to generate flashcards");
+      throw new Error(errorData.error?.message || errorData.error || "Failed to generate flashcards");
     }
     
     return await response.json() as GeneratedFlashcard[];

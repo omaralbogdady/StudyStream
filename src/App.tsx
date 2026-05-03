@@ -713,9 +713,9 @@ function App() {
     try {
       const explanation = await explainTopic(selectedTask.title, selectedTask.description);
       setExplainmentContent(explanation || "No explanation generated.");
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Error:", error);
-      setExplainmentContent("Sorry, I couldn't generate an explanation right now.");
+      setExplainmentContent(`Sorry, I couldn't generate an explanation right now. ${error.message || ""}`);
     } finally {
       setIsExplaining(false);
     }
@@ -733,8 +733,9 @@ function App() {
           type: 'concept'
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Error:", error);
+      alert(`AI Error: ${error.message || "Failed to generate concepts"}`);
     } finally {
       setIsGeneratingConcepts(false);
     }
@@ -754,8 +755,9 @@ function App() {
           type: 'flashcard'
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Error:", error);
+      alert(`AI Error: ${error.message || "Failed to generate flashcards"}`);
     } finally {
       setIsGeneratingFlashcards(false);
     }

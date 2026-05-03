@@ -35,7 +35,7 @@ service cloud.firestore {
 
     function isValidTask(data) {
       let allowedFields = ['userId', 'title', 'type', 'status', 'progress', 'createdAt', 'description', 'dueDate', 'calendarEventId', 'recurrence', 'parentId'];
-      return data.keys().hasOnly(allowedFields) &&
+      return allowedFields.hasAll(data.keys()) &&
              data.userId == request.auth.uid &&
              isValidString(data.title, 100) &&
              data.type in ['assignment', 'exam'] &&
@@ -51,7 +51,7 @@ service cloud.firestore {
 
     function isValidSubTask(data) {
       let allowedFields = ['taskId', 'title', 'completed', 'order'];
-      return data.keys().hasOnly(allowedFields) &&
+      return allowedFields.hasAll(data.keys()) &&
              isValidString(data.title, 200) &&
              data.completed is bool &&
              data.order is number;
@@ -59,7 +59,7 @@ service cloud.firestore {
 
     function isValidNote(data) {
       let allowedFields = ['taskId', 'content', 'type', 'question', 'answer', 'hint'];
-      return data.keys().hasOnly(allowedFields) && 
+      return allowedFields.hasAll(data.keys()) && 
              data.type in ['concept', 'flashcard'] &&
              (data.type == 'concept' ? (
                isValidString(data.content, 5000) && 
@@ -75,7 +75,7 @@ service cloud.firestore {
     function isValidUser(data) {
       let allowedFields = ['uid', 'email', 'displayName', 'photoURL', 'calendarSyncEnabled', 'aiEnabled', 'hasCompletedOnboarding', 'themeColor'];
       return data.keys().hasAll(['uid', 'email']) &&
-             data.keys().hasOnly(allowedFields) &&
+             allowedFields.hasAll(data.keys()) &&
              data.uid == request.auth.uid &&
              data.email is string && data.email.size() <= 255 &&
              (!('displayName' in data) || data.displayName is string) &&
