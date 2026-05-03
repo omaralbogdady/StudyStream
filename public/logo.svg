@@ -1,31 +1,18 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <filter id="glow" x="200" y="200" width="112" height="112" filterUnits="userSpaceOnUse">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
-  </defs>
   <rect width="512" height="512" rx="112" fill="#3B82F6"/>
-  
-  <!-- Book -->
-  <path d="M256 420V330M256 330C280 330 330 330 370 350V430C330 410 280 410 256 410C232 410 182 410 142 430V350C182 330 232 330 256 330Z" stroke="white" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-  
-  <!-- Lightbulb Body -->
-  <path d="M256 160C210 160 185 200 185 240C185 275 205 300 215 320V360H297V320C307 300 327 275 327 240C327 200 302 160 256 160Z" fill="white" fill-opacity="0.1" stroke="white" stroke-width="18" stroke-linejoin="round"/>
-  
-  <!-- Bulb Threads -->
-  <path d="M230 375H282" stroke="white" stroke-width="12" stroke-linecap="round"/>
-  <path d="M235 390H277" stroke="white" stroke-width="12" stroke-linecap="round"/>
-  <path d="M245 405H267" stroke="white" stroke-width="12" stroke-linecap="round"/>
-  
-  <!-- Graduation Cap -->
-  <path d="M430 140L256 60L82 140L256 220L430 140Z" fill="#3B82F6" stroke="white" stroke-width="18" stroke-linejoin="round"/>
-  <path d="M145 170V210C145 235 195 255 256 255C317 255 367 235 367 210V170" stroke="white" stroke-width="18" stroke-linejoin="round" fill="none"/>
-  
-  <!-- Tassel on the LEFT -->
-  <path d="M125 130V200" stroke="white" stroke-width="10" stroke-linecap="round"/>
-  <rect x="115" y="200" width="20" height="25" rx="4" fill="white"/>
-  
-  <!-- Glowing Spark -->
-  <path d="M256 210L264 236L290 244L264 252L256 278L248 252L222 244L248 236L256 210Z" fill="white" filter="url(#glow)"/>
+  <g transform="translate(64, 64) scale(0.75)">
+    <!-- Open Book -->
+    <path d="M256 460V310M256 460C210 460 140 460 100 420V320C140 340 210 340 256 340C302 340 372 340 412 320V420C372 440 302 440 256 460Z" stroke="white" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    
+    <!-- Central Star -->
+    <path d="M256 190L272 245L327 261L272 277L256 332L240 277L185 261L240 245L256 190Z" fill="white"/>
+    
+    <!-- Graduation Cap -->
+    <path d="M440 140L256 50L72 140L256 230L440 140Z" fill="none" stroke="white" stroke-width="24" stroke-linejoin="round"/>
+    <path d="M145 175V215C145 245 195 265 256 265C317 265 367 245 367 215V175" stroke="white" stroke-width="24" stroke-linejoin="round" fill="none"/>
+    
+    <!-- Tassel on the LEFT -->
+    <path d="M120 125V210" stroke="white" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="120" cy="215" r="14" fill="white"/>
+  </g>
 </svg>

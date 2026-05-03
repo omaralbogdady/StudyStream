@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { 
+  GraduationCap,
   CheckCircle2, 
   BookOpen, 
   BrainCircuit, 
@@ -22,7 +23,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { Logo } from './Logo';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -76,7 +76,9 @@ export const LandingPage = ({
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 h-20 border-b border-border/40 dark:border-border-dark/40 bg-white/70 dark:bg-black/70 backdrop-blur-xl z-50 px-6 sm:px-12 flex items-center justify-between">
         <div className="flex items-center gap-2 group cursor-pointer">
-          <Logo className="w-10 h-10 shadow-xl shadow-primary/20 rounded-2xl" />
+          <div className="w-9 h-9 bg-primary dark:bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
+            <GraduationCap className="text-white w-5 h-5" />
+          </div>
           <span className="font-bold text-xl tracking-tight text-text-main dark:text-text-main-dark italic">Lumina</span>
         </div>
         
@@ -421,7 +423,9 @@ export const LandingPage = ({
           <div className="flex flex-col items-center justify-center gap-12 mb-16">
             <div className="space-y-6 flex flex-col items-center text-center">
               <div className="flex items-center gap-2">
-                <Logo className="w-14 h-14 rounded-2xl shadow-xl shadow-primary/10" />
+                <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center">
+                  <GraduationCap className="text-white w-5 h-5" />
+                </div>
                 <span className="font-bold text-xl tracking-tight italic">Lumina</span>
               </div>
               <p className="text-text-muted text-sm max-w-xs leading-relaxed">
