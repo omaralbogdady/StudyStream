@@ -539,7 +539,7 @@ function App() {
           displayName: user.displayName || '',
           photoURL: user.photoURL || '',
           calendarSyncEnabled: false,
-          aiEnabled: false,
+          aiEnabled: true,
           hasCompletedOnboarding: false
         };
         setDoc(doc(db, 'users', user.uid), newProfile);
