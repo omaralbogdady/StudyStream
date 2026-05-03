@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '../lib/utils';
+import logoPng from '../assets/logo.png';
 
 interface LogoProps {
   className?: string;
@@ -7,12 +8,15 @@ interface LogoProps {
 }
 
 export const Logo = ({ className, showBackground = true }: LogoProps) => {
-  if (showBackground) {
+  const [error, setError] = useState(false);
+
+  if (showBackground && !error) {
     return (
       <img 
-        src="/logo.png" 
+        src={logoPng} 
         alt="Lumina" 
-        className={cn("object-contain", className)} 
+        className={cn("object-contain", className)}
+        onError={() => setError(true)}
       />
     );
   }
