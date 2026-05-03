@@ -1,5 +1,6 @@
 export type TaskType = 'assignment' | 'exam';
 export type NoteType = 'concept' | 'flashcard';
+export type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'none';
 
 export interface Task {
   id: string;
@@ -12,6 +13,8 @@ export interface Task {
   description: string;
   createdAt: Date;
   calendarEventId?: string;
+  recurrence?: RecurrenceType;
+  parentId?: string; // To track instances of the same recurring task
 }
 
 export interface SubTask {

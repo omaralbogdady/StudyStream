@@ -68,8 +68,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, Variants } from 'motion/react';
 import { cn } from './lib/utils';
-import { Task, SubTask, Note, TaskType, UserProfile } from './types';
-import { format } from 'date-fns';
+import { Task, SubTask, Note, TaskType, UserProfile, RecurrenceType } from './types';
+import { format, addDays, addWeeks, addMonths } from 'date-fns';
 import { LandingPage } from './components/LandingPage';
 import { Onboarding } from './components/Onboarding';
 import { explainTopic, generateConcepts, generateFlashcards } from './services/geminiService';
@@ -479,6 +479,7 @@ function App() {
   const [taskModalTitle, setTaskModalTitle] = useState('');
   const [taskModalDesc, setTaskModalDesc] = useState('');
   const [taskModalDueDate, setTaskModalDueDate] = useState('');
+  const [taskModalRecurrence, setTaskModalRecurrence] = useState<RecurrenceType>('none');
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
 
   // Delete Confirmation State
@@ -837,6 +838,7 @@ function App() {
     setTaskModalTitle('');
     setTaskModalDesc('');
     setTaskModalDueDate('');
+    setTaskModalRecurrence('none');
     setIsTaskModalOpen(true);
   };
 
@@ -846,6 +848,7 @@ function App() {
     setTaskModalTitle(task.title);
     setTaskModalDesc(task.description || '');
     setTaskModalDueDate(task.dueDate ? format(task.dueDate, "yyyy-MM-dd'T'HH:mm") : '');
+    setTaskModalRecurrence(task.recurrence || 'none');
     setIsTaskModalOpen(true);
   };
 
@@ -861,6 +864,7 @@ function App() {
       status: taskToEdit?.status || 'pending',
       progress: taskToEdit?.progress || 0,
       createdAt: taskToEdit?.createdAt ? Timestamp.fromDate(taskToEdit.createdAt) : Timestamp.now(),
+      recurrence: taskModalRecurrence
     };
 
     if (taskModalDueDate) {
@@ -905,14 +909,40 @@ function App() {
 
   const toggleTaskStatus = async (task: Task) => {
     if (!user) return;
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
-    const newProgress = newStatus === 'completed' ? 100 : 0;
+    const isNowCompleted = task.status !== 'completed';
+    const newStatus = isNowCompleted ? 'completed' : 'pending';
+    const newProgress = isNowCompleted ? 100 : 0;
     
     try {
       await updateDoc(doc(db, 'tasks', task.id), {
         status: newStatus,
         progress: newProgress
       });
+
+      // Handle recurrence if completed
+      if (isNowCompleted && task.recurrence && task.recurrence !== 'none') {
+        let nextDueDate: Date | null = null;
+        const currentDueDate = task.dueDate || new Date();
+
+        if (task.recurrence === 'daily') nextDueDate = addDays(currentDueDate, 1);
+        else if (task.recurrence === 'weekly') nextDueDate = addWeeks(currentDueDate, 1);
+        else if (task.recurrence === 'monthly') nextDueDate = addMonths(currentDueDate, 1);
+
+        if (nextDueDate) {
+          await addDoc(collection(db, 'tasks'), {
+            userId: user.uid,
+            title: task.title,
+            description: task.description,
+            type: task.type,
+            status: 'pending',
+            progress: 0,
+            createdAt: Timestamp.now(),
+            dueDate: Timestamp.fromDate(nextDueDate),
+            recurrence: task.recurrence,
+            parentId: task.parentId || task.id
+          });
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
     }
@@ -1440,6 +1470,9 @@ function App() {
                           )}>
                             {task.type}
                           </span>
+                          {task.recurrence && task.recurrence !== 'none' && (
+                            <RotateCw className="w-3 h-3 text-primary/60" />
+                          )}
                         </div>
                         {task.dueDate && (
                           <span className="text-[9px] font-bold text-text-muted/60">
@@ -2080,6 +2113,26 @@ function App() {
             value={taskModalDueDate}
             onChange={(e: any) => setTaskModalDueDate(e.target.value)}
           />
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-text-muted dark:text-text-muted-dark uppercase ml-1">Recurrence</label>
+            <div className="grid grid-cols-4 gap-2">
+              {(['none', 'daily', 'weekly', 'monthly'] as RecurrenceType[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setTaskModalRecurrence(type)}
+                  className={cn(
+                    "py-2 rounded-xl text-xs font-bold transition-all border",
+                    taskModalRecurrence === type 
+                      ? "bg-primary text-white border-primary shadow-sm" 
+                      : "bg-surface-muted dark:bg-surface-muted-dark text-text-muted border-border dark:border-border-dark hover:border-primary/50"
+                  )}
+                >
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="secondary" className="flex-1" onClick={() => setIsTaskModalOpen(false)}>
               Cancel
